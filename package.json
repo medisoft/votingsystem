@@ -1,0 +1,27 @@
+{
+  "name": "condominium-voting-system",
+  "private": true,
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,admin \"npm run dev -w @voting/registration-api\" \"npm run dev -w @voting/registration-admin\"",
+    "dev:infra": "docker compose up -d postgres",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "db:generate": "npm run db:generate -w @voting/registration-api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.5.3"
+  }
+}
