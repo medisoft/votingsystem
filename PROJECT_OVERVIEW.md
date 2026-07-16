@@ -1,4 +1,4 @@
-# Condominium Voting System 
+# Condominium Voting System
 
 This is a MVC thought to evolve to an OpenVote Continuous system
 
@@ -20,12 +20,12 @@ The guiding principle is simple:
 
 Traditional elections have several limitations:
 
-* They are expensive to organize.
-* They occur only on specific dates.
-* They require large logistical operations.
-* Counting may take hours or days.
-* Citizens cannot independently verify every step.
-* Voting often requires physical presence.
+- They are expensive to organize.
+- They occur only on specific dates.
+- They require large logistical operations.
+- Counting may take hours or days.
+- Citizens cannot independently verify every step.
+- Voting often requires physical presence.
 
 At the same time, many existing electronic voting systems require trusting a central authority or proprietary software.
 
@@ -45,11 +45,11 @@ Every component should be publicly available.
 
 Anyone should be able to:
 
-* inspect the source code;
-* compile it independently;
-* reproduce official builds;
-* report security issues;
-* contribute improvements.
+- inspect the source code;
+- compile it independently;
+- reproduce official builds;
+- report security issues;
+- contribute improvements.
 
 No proprietary cryptography.
 
@@ -75,10 +75,10 @@ Every important operation should be cryptographically verifiable.
 
 Examples include:
 
-* credential issuance;
-* ballot signatures;
-* receipt verification;
-* public result reconstruction.
+- credential issuance;
+- ballot signatures;
+- receipt verification;
+- public result reconstruction.
 
 ---
 
@@ -110,13 +110,13 @@ The initial goal is to build a practical voting system for condominium assemblie
 
 Future goals include supporting:
 
-* homeowner associations
-* clubs
-* universities
-* cooperatives
-* nonprofit organizations
-* shareholder meetings
-* professional associations
+- homeowner associations
+- clubs
+- universities
+- cooperatives
+- nonprofit organizations
+- shareholder meetings
+- professional associations
 
 The architecture should also allow future research toward larger democratic systems.
 
@@ -130,12 +130,12 @@ The system consists of four independent applications.
 
 Responsible for:
 
-* voter registry
-* eligibility
-* QR generation
-* anonymous credential issuance
-* credential recovery
-* credential revocation
+- voter registry
+- eligibility
+- QR generation
+- anonymous credential issuance
+- credential recovery
+- credential revocation
 
 It never receives votes.
 
@@ -145,11 +145,11 @@ It never receives votes.
 
 A Progressive Web App that allows voters to:
 
-* activate credentials
-* generate local cryptographic keys
-* vote anonymously
-* replace previous votes
-* verify vote acceptance
+- activate credentials
+- generate local cryptographic keys
+- vote anonymously
+- replace previous votes
+- verify vote acceptance
 
 It never knows the real identity of the voter after activation.
 
@@ -159,11 +159,11 @@ It never knows the real identity of the voter after activation.
 
 Responsible for:
 
-* receiving anonymous votes
-* verifying signatures
-* replacing previous votes
-* storing ballots
-* publishing results
+- receiving anonymous votes
+- verifying signatures
+- replacing previous votes
+- storing ballots
+- publishing results
 
 It never knows voter identities.
 
@@ -173,11 +173,11 @@ It never knows voter identities.
 
 A completely independent application that allows anyone to:
 
-* verify signatures
-* verify ballots
-* reconstruct election results
-* detect inconsistencies
-* validate receipts
+- verify signatures
+- verify ballots
+- reconstruct election results
+- detect inconsistencies
+- validate receipts
 
 No administrator access is required.
 
@@ -211,10 +211,10 @@ These are intentionally different operations.
 
 Future versions may incorporate:
 
-* blind signatures;
-* anonymous credentials;
-* zero-knowledge proofs;
-* threshold cryptography.
+- blind signatures;
+- anonymous credentials;
+- zero-knowledge proofs;
+- threshold cryptography.
 
 The initial prototype intentionally starts simpler while preserving a compatible architecture.
 
@@ -228,10 +228,10 @@ Only the latest valid vote counts.
 
 Potential benefits include:
 
-* reducing vote-buying incentives;
-* reducing coercion;
-* allowing voters to reconsider;
-* correcting accidental selections.
+- reducing vote-buying incentives;
+- reducing coercion;
+- allowing voters to reconsider;
+- correcting accidental selections.
 
 ---
 
@@ -241,11 +241,11 @@ Every election should publish a signed audit package.
 
 Anyone can independently verify:
 
-* proposal integrity;
-* anonymous credential validity;
-* ballot signatures;
-* vote replacement logic;
-* official results.
+- proposal integrity;
+- anonymous credential validity;
+- ballot signatures;
+- vote replacement logic;
+- official results.
 
 The goal is that two independent auditors always produce exactly the same final report.
 
@@ -257,11 +257,11 @@ Absolute security does not exist.
 
 The project instead aims to make successful attacks:
 
-* difficult;
-* expensive;
-* detectable;
-* recoverable;
-* publicly auditable.
+- difficult;
+- expensive;
+- detectable;
+- recoverable;
+- publicly auditable.
 
 Security should rely on multiple independent layers rather than a single trusted authority.
 
@@ -273,31 +273,31 @@ Current planned technologies include:
 
 Backend
 
-* Node.js
-* TypeScript
-* Fastify
-* PostgreSQL
-* Prisma
+- Node.js
+- TypeScript
+- Fastify
+- PostgreSQL
+- Prisma
 
 Frontend
 
-* React
-* TypeScript
-* Progressive Web App
+- React
+- TypeScript
+- Progressive Web App
 
 Infrastructure
 
-* Docker
-* Docker Compose
-* GitHub
-* OpenAPI
+- Docker
+- Docker Compose
+- GitHub
+- OpenAPI
 
 Cryptography
 
-* Web Crypto API
-* Ed25519
-* Blind signatures (future)
-* Canonical serialization
+- Web Crypto API
+- Ed25519
+- Blind signatures (future)
+- Canonical serialization
 
 ---
 
@@ -309,11 +309,11 @@ Condominium voting MVP
 
 Goals:
 
-* registration
-* anonymous credentials
-* proposal voting
-* vote replacement
-* public audit
+- registration
+- anonymous credentials
+- proposal voting
+- vote replacement
+- public audit
 
 ---
 
@@ -323,10 +323,10 @@ Cryptographic improvements
 
 Research:
 
-* blind signatures
-* unlinkable credentials
-* reproducible builds
-* deterministic audit packages
+- blind signatures
+- unlinkable credentials
+- reproducible builds
+- deterministic audit packages
 
 ---
 
@@ -336,10 +336,10 @@ Scalability
 
 Support:
 
-* multiple organizations
-* multiple simultaneous elections
-* weighted voting
-* delegated voting
+- multiple organizations
+- multiple simultaneous elections
+- weighted voting
+- delegated voting
 
 ---
 
@@ -349,10 +349,10 @@ Research Platform
 
 Experiment with:
 
-* continuous voting
-* continuously updated confidence indicators
-* anonymous reputation systems
-* large-scale distributed verification
+- continuous voting
+- continuously updated confidence indicators
+- anonymous reputation systems
+- large-scale distributed verification
 
 These ideas are experimental and are not part of the MVP.
 
@@ -362,11 +362,11 @@ These ideas are experimental and are not part of the MVP.
 
 OpenVote Continuous is **not**:
 
-* a cryptocurrency;
-* a blockchain project;
-* a political movement;
-* a government initiative;
-* a replacement for existing electoral authorities.
+- a cryptocurrency;
+- a blockchain project;
+- a political movement;
+- a government initiative;
+- a replacement for existing electoral authorities.
 
 It is an open engineering project exploring transparent digital voting.
 
@@ -380,10 +380,10 @@ The first implementation target is a condominium voting system.
 
 The MVP will prioritize:
 
-* correctness;
-* transparency;
-* maintainability;
-* simplicity.
+- correctness;
+- transparency;
+- maintainability;
+- simplicity.
 
 Advanced cryptographic features will be introduced incrementally after the core architecture is stable.
 
@@ -395,38 +395,38 @@ We welcome contributions in areas such as:
 
 Software Engineering
 
-* Frontend
-* Backend
-* DevOps
-* Infrastructure
-* Testing
+- Frontend
+- Backend
+- DevOps
+- Infrastructure
+- Testing
 
 Security
 
-* Cryptography
-* Threat modeling
-* Penetration testing
-* Code review
+- Cryptography
+- Threat modeling
+- Penetration testing
+- Code review
 
 Research
 
-* Voting protocols
-* Anonymous credentials
-* Formal verification
-* Distributed systems
+- Voting protocols
+- Anonymous credentials
+- Formal verification
+- Distributed systems
 
 UX
 
-* Accessibility
-* Mobile usability
-* User education
+- Accessibility
+- Mobile usability
+- User education
 
 Documentation
 
-* Technical writing
-* Diagrams
-* Tutorials
-* API documentation
+- Technical writing
+- Diagrams
+- Tutorials
+- API documentation
 
 ---
 
