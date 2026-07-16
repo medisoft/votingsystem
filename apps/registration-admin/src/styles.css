@@ -52,6 +52,12 @@ label {
   gap: 0.35rem;
   font-weight: 650;
 }
+label small,
+form > small {
+  color: #52616b;
+  font-weight: 400;
+  line-height: 1.4;
+}
 input,
 select,
 button {
@@ -69,6 +75,19 @@ button {
 }
 button:disabled {
   opacity: 0.6;
+}
+.small {
+  margin-top: 0.5rem;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+}
+.check {
+  display: flex;
+  align-items: center;
+  grid-template-columns: auto 1fr;
+}
+.check input {
+  width: auto;
 }
 .secondary {
   background: white;
