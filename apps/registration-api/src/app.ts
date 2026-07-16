@@ -6,6 +6,7 @@ import { registerAuthRoutes } from './auth.js';
 import type { AppConfig } from './config.js';
 import databasePlugin from './plugins/database.js';
 import { registerScopeRoutes } from './scopes.js';
+import { registerRegistrationRoutes } from './registrations.js';
 export async function buildApp(
   config: AppConfig,
   checkDb?: () => Promise<void>,
@@ -37,5 +38,6 @@ export async function buildApp(
   app.get('/api/v1', async () => ({ service: 'registration-api', version: 1 }));
   registerAuthRoutes(app, config.NODE_ENV === 'production');
   registerScopeRoutes(app);
+  registerRegistrationRoutes(app);
   return app;
 }
