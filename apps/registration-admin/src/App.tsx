@@ -33,6 +33,23 @@ interface Scope {
   issuerKeyVersion: string;
   version: number;
 }
+interface Registration {
+  id: string;
+  unitNumber: string;
+  ownerName: string;
+  representativeName: string | null;
+  email: string | null;
+  phone: string | null;
+  votingWeight: string;
+  eligible: boolean;
+  status: 'ACTIVE' | 'INACTIVE';
+  version: number;
+  scopeEligibilities: Array<{
+    eligible: boolean;
+    votingWeight: string;
+    votingScope: { id: string; name: string; status: ScopeStatus };
+  }>;
+}
 const nextStatus: Partial<Record<ScopeStatus, ScopeStatus>> = {
   DRAFT: 'REGISTRATION_OPEN',
   REGISTRATION_OPEN: 'ACTIVATION_OPEN',
@@ -135,6 +152,35 @@ function Dashboard({ user }: { user: User }) {
     queryKey: ['scopes'],
     queryFn: () => api<{ scopes: Scope[] }>('/api/v1/admin/scopes'),
   });
+  const [registrationSearch, setRegistrationSearch] = useState('');
+  const registrations = useQuery({
+    queryKey: ['registrations', registrationSearch],
+    queryFn: () =>
+      api<{ records: Registration[] }>(
+        `/api/v1/admin/registrations?search=${encodeURIComponent(registrationSearch)}`,
+      ),
+  });
+  const registrationMutation = useMutation({
+    mutationFn: ({
+      path,
+      body,
+      method = 'POST',
+    }: {
+      path: string;
+      body?: unknown;
+      method?: string;
+    }) =>
+      api(path, {
+        method,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+    onSuccess: () => {
+      setMessage('Registro actualizado.');
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage('No fue posible guardar el registro: ' + error.message),
+  });
   const scopeMutation = useMutation({
     mutationFn: ({
       path,
@@ -218,6 +264,56 @@ function Dashboard({ user }: { user: User }) {
         body: { name: name.trim(), version: scope.version },
       });
   };
+  const createRegistration = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    registrationMutation.mutate({
+      path: '/api/v1/admin/registrations',
+      body: {
+        unitNumber: String(data.get('unitNumber')),
+        ownerName: String(data.get('ownerName')),
+        representativeName: String(data.get('representativeName')) || null,
+        email: String(data.get('recordEmail')) || null,
+        phone: String(data.get('phone')) || null,
+        votingWeight: String(data.get('votingWeight')),
+        eligible: true,
+        status: 'ACTIVE',
+        notes: String(data.get('notes')) || null,
+      },
+    });
+  };
+  const setEligibility = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    registrationMutation.mutate({
+      path: `/api/v1/admin/registrations/${data.get('recordId')}/scopes/${data.get('scopeId')}`,
+      method: 'PUT',
+      body: {
+        eligible: data.get('scopeEligible') === 'on',
+        votingWeight: String(data.get('scopeWeight')),
+      },
+    });
+  };
+  const editRegistration = (record: Registration) => {
+    const ownerName = window.prompt('Nombre del propietario', record.ownerName);
+    if (ownerName && ownerName.trim() !== record.ownerName)
+      registrationMutation.mutate({
+        path: `/api/v1/admin/registrations/${record.id}`,
+        method: 'PATCH',
+        body: { ownerName: ownerName.trim(), version: record.version },
+      });
+  };
+  const deleteRegistration = (record: Registration) => {
+    if (
+      window.confirm(
+        `¿Desactivar ${record.unitNumber}? Se conservará su historial.`,
+      )
+    )
+      registrationMutation.mutate({
+        path: `/api/v1/admin/registrations/${record.id}`,
+        method: 'DELETE',
+      });
+  };
   return (
     <main>
       <section className="wide">
@@ -233,6 +329,144 @@ function Dashboard({ user }: { user: User }) {
             Cerrar sesión
           </button>
         </header>
+        <h2>Registro de votantes</h2>
+        <label>
+          Buscar por unidad, nombre, representante o correo
+          <input
+            value={registrationSearch}
+            onChange={(event) => setRegistrationSearch(event.target.value)}
+            placeholder="Buscar…"
+          />
+        </label>
+        <ul>
+          {registrations.data?.records.map((record) => (
+            <li key={record.id}>
+              <span>
+                <strong>{record.unitNumber}</strong> · {record.ownerName}
+                <br />
+                {record.email ?? 'Sin correo'}
+                {' · '}
+                {record.phone ?? 'Sin teléfono'}
+              </span>
+              <span>
+                {record.eligible ? 'Elegible' : 'No elegible'} · peso{' '}
+                {record.votingWeight}
+                <br />
+                {record.scopeEligibilities
+                  .map(
+                    (item) =>
+                      `${item.votingScope.name}: ${item.eligible ? 'sí' : 'no'} (${item.votingWeight})`,
+                  )
+                  .join(', ') || 'Sin elegibilidad por alcance'}
+                {user.role !== 'AUDITOR' && (
+                  <>
+                    <br />
+                    <button
+                      className="small secondary"
+                      onClick={() => editRegistration(record)}
+                    >
+                      Editar propietario
+                    </button>
+                  </>
+                )}
+                {user.role === 'SYSTEM_ADMIN' && (
+                  <>
+                    <br />
+                    <button
+                      className="small secondary"
+                      onClick={() => deleteRegistration(record)}
+                    >
+                      Desactivar
+                    </button>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {user.role !== 'AUDITOR' && (
+          <>
+            <h2>Crear registro</h2>
+            <form onSubmit={createRegistration}>
+              <label>
+                Unidad
+                <input name="unitNumber" required />
+              </label>
+              <label>
+                Propietario
+                <input name="ownerName" required />
+              </label>
+              <label>
+                Representante autorizado
+                <input name="representativeName" />
+              </label>
+              <label>
+                Correo
+                <input name="recordEmail" type="email" />
+              </label>
+              <label>
+                Teléfono
+                <input name="phone" />
+              </label>
+              <label>
+                Peso de voto
+                <input
+                  name="votingWeight"
+                  inputMode="decimal"
+                  defaultValue="1.0000"
+                  pattern="\d+(\.\d{1,4})?"
+                  required
+                />
+              </label>
+              <label>
+                Notas
+                <input name="notes" />
+              </label>
+              <button disabled={registrationMutation.isPending}>
+                Crear registro
+              </button>
+            </form>
+            <h2>Elegibilidad por alcance</h2>
+            <form onSubmit={setEligibility}>
+              <label>
+                Registro
+                <select name="recordId" required>
+                  {registrations.data?.records.map((record) => (
+                    <option key={record.id} value={record.id}>
+                      {record.unitNumber} — {record.ownerName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Alcance
+                <select name="scopeId" required>
+                  {scopes.data?.scopes.map((scope) => (
+                    <option key={scope.id} value={scope.id}>
+                      {scope.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Peso en este alcance
+                <input
+                  name="scopeWeight"
+                  inputMode="decimal"
+                  defaultValue="1.0000"
+                  required
+                />
+              </label>
+              <label className="check">
+                <input name="scopeEligible" type="checkbox" defaultChecked />
+                Elegible en este alcance
+              </label>
+              <button disabled={registrationMutation.isPending}>
+                Guardar elegibilidad
+              </button>
+            </form>
+          </>
+        )}
         <h2>Alcances de votación</h2>
         {scopes.isError && (
           <p role="alert">No fue posible cargar los alcances.</p>

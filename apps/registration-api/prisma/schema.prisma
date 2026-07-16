@@ -47,9 +47,52 @@ model VotingScope {
   version               Int               @default(1)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
+  eligibilities         ScopeEligibility[]
 
   @@index([status])
   @@index([startsAt, endsAt])
+}
+
+enum RegistrationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model RegistrationRecord {
+  id                 String             @id @default(uuid()) @db.Uuid
+  unitNumber         String             @unique
+  ownerName          String
+  representativeName String?
+  email              String?
+  phone              String?
+  votingWeight       Decimal            @default(1) @db.Decimal(12, 4)
+  eligible           Boolean            @default(true)
+  status             RegistrationStatus @default(ACTIVE)
+  notes              String?
+  version            Int                @default(1)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deletedAt          DateTime?
+  scopeEligibilities ScopeEligibility[]
+
+  @@index([ownerName])
+  @@index([email])
+  @@index([eligible, status])
+}
+
+model ScopeEligibility {
+  id                   String             @id @default(uuid()) @db.Uuid
+  registrationRecordId String             @db.Uuid
+  votingScopeId        String             @db.Uuid
+  eligible             Boolean
+  votingWeight         Decimal            @db.Decimal(12, 4)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  registrationRecord   RegistrationRecord @relation(fields: [registrationRecordId], references: [id], onDelete: Cascade)
+  votingScope          VotingScope        @relation(fields: [votingScopeId], references: [id], onDelete: Cascade)
+
+  @@unique([registrationRecordId, votingScopeId])
+  @@index([votingScopeId, eligible])
 }
 
 model AdminUser {

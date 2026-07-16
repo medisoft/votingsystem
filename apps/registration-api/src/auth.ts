@@ -41,6 +41,10 @@ declare module 'fastify' {
       request: FastifyRequest,
       reply: FastifyReply,
     ) => Promise<unknown>;
+    requireRegistrationWrite: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<unknown>;
   }
   interface FastifyRequest {
     admin?: {
@@ -91,6 +95,15 @@ export function registerAuthRoutes(
   };
   app.decorate('authenticateAdmin', authenticate);
   app.decorate('requireSystemAdmin', systemAdmin);
+  app.decorate('requireRegistrationWrite', async (request, reply) => {
+    await authenticate(request, reply);
+    if (reply.sent) return;
+    if (
+      !request.admin ||
+      !['SYSTEM_ADMIN', 'REGISTRATION_OPERATOR'].includes(request.admin.role)
+    )
+      return reply.code(403).send({ code: 'FORBIDDEN' });
+  });
 
   app.post(
     '/api/v1/admin/auth/login',

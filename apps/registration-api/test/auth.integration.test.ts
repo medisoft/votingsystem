@@ -22,6 +22,8 @@ suite('administrative authentication', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   beforeAll(async () => {
     await prisma.auditEvent.deleteMany();
+    await prisma.scopeEligibility.deleteMany();
+    await prisma.registrationRecord.deleteMany();
     await prisma.votingScope.deleteMany();
     await prisma.adminSession.deleteMany();
     await prisma.adminUser.deleteMany();
@@ -163,5 +165,95 @@ suite('administrative authentication', () => {
     expect(
       await prisma.auditEvent.count({ where: { targetType: 'VotingScope' } }),
     ).toBe(3);
+  });
+  it('manages registration records and per-scope eligibility with decimal weights', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const raw = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations',
+      headers: { cookie },
+      payload: {
+        unitNumber: 'A-101',
+        ownerName: 'Example Owner',
+        email: 'owner@example.com',
+        votingWeight: '1.2500',
+        eligible: true,
+        status: 'ACTIVE',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().record.votingWeight).toBe('1.25');
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/registrations',
+          headers: { cookie },
+          payload: {
+            unitNumber: 'A-101',
+            ownerName: 'Duplicate',
+            votingWeight: '1.0000',
+          },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const record = created.json().record;
+    const search = await app.inject({
+      url: '/api/v1/admin/registrations?search=A-101',
+      headers: { cookie },
+    });
+    expect(search.json().records).toHaveLength(1);
+    const scope = await prisma.votingScope.findFirstOrThrow();
+    const eligibility = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/admin/registrations/${record.id}/scopes/${scope.id}`,
+      headers: { cookie },
+      payload: { eligible: true, votingWeight: '2.5000' },
+    });
+    expect(eligibility.statusCode).toBe(200);
+    expect(eligibility.json().eligibility.votingWeight).toBe('2.5');
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/registrations/${record.id}`,
+          headers: { cookie },
+          payload: { ownerName: 'Updated Owner', version: record.version },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/registrations/${record.id}`,
+          headers: { cookie },
+          payload: { ownerName: 'Stale', version: record.version },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          method: 'DELETE',
+          url: `/api/v1/admin/registrations/${record.id}`,
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(204);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/registrations?search=A-101',
+          headers: { cookie },
+        })
+      ).json().records,
+    ).toHaveLength(0);
   });
 });

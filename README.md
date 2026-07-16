@@ -54,5 +54,9 @@ The current UI supports creation, name editing while editable, and explicit forw
 
 Activation and voting windows may overlap. Each window must be internally ordered, and credential expiration must be after both windows end.
 
+## Stage 4 registration records
+
+Administrators and registration operators can create, search, update, and assign per-scope eligibility to voting-entitlement records. Weights use PostgreSQL DECIMAL(12,4), never floating-point storage. System administrators may soft-delete records; auditors have read-only access. All mutations are audited and stale updates are rejected using record versions.
+
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
