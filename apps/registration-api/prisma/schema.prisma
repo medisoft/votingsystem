@@ -23,6 +23,35 @@ enum ActorType {
   ANONYMOUS
 }
 
+enum VotingScopeStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  ACTIVATION_OPEN
+  VOTING_ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+model VotingScope {
+  id                    String            @id @default(uuid()) @db.Uuid
+  name                  String
+  description           String?
+  status                VotingScopeStatus @default(DRAFT)
+  startsAt              DateTime
+  endsAt                DateTime
+  activationStartsAt    DateTime
+  activationEndsAt      DateTime
+  credentialExpiresAt   DateTime
+  votingWeightsEnabled  Boolean           @default(false)
+  issuerKeyVersion      String
+  version               Int               @default(1)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([status])
+  @@index([startsAt, endsAt])
+}
+
 model AdminUser {
   id               String         @id @default(uuid()) @db.Uuid
   email            String         @unique

@@ -48,6 +48,9 @@ it('does not send a JSON content type for bodyless logout', async () => {
       if (path.endsWith('/api/v1/admin/users')) {
         return { ok: true, status: 200, json: async () => ({ users: [] }) };
       }
+      if (path.endsWith('/api/v1/admin/scopes')) {
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      }
       return { ok: true, status: 204, json: async () => undefined };
     },
   );

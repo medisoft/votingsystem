@@ -32,6 +32,16 @@ const publicUser = (user: {
 });
 
 declare module 'fastify' {
+  interface FastifyInstance {
+    authenticateAdmin: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<unknown>;
+    requireSystemAdmin: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<unknown>;
+  }
   interface FastifyRequest {
     admin?: {
       id: string;
@@ -79,6 +89,8 @@ export function registerAuthRoutes(
     if (request.admin?.role !== 'SYSTEM_ADMIN')
       return reply.code(403).send({ code: 'FORBIDDEN' });
   };
+  app.decorate('authenticateAdmin', authenticate);
+  app.decorate('requireSystemAdmin', systemAdmin);
 
   app.post(
     '/api/v1/admin/auth/login',

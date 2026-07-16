@@ -22,6 +22,7 @@ suite('administrative authentication', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   beforeAll(async () => {
     await prisma.auditEvent.deleteMany();
+    await prisma.votingScope.deleteMany();
     await prisma.adminSession.deleteMany();
     await prisma.adminUser.deleteMany();
     await prisma.adminUser.create({
@@ -82,5 +83,85 @@ suite('administrative authentication', () => {
         .statusCode,
     ).toBe(401);
     expect(await prisma.auditEvent.count()).toBeGreaterThanOrEqual(3);
+  });
+
+  it('creates, edits, and advances a valid voting scope', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const setCookie = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0]! : setCookie).split(
+      ';',
+    )[0]!;
+    const body = {
+      name: 'Assembly 2026',
+      description: 'Annual assembly',
+      activationStartsAt: '2026-08-01T10:00:00Z',
+      activationEndsAt: '2026-08-01T14:00:00Z',
+      startsAt: '2026-08-01T12:00:00Z',
+      endsAt: '2026-08-01T18:00:00Z',
+      credentialExpiresAt: '2026-08-02T00:00:00Z',
+      votingWeightsEnabled: true,
+      issuerKeyVersion: '2026-01',
+    };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/scopes',
+          headers: { cookie },
+          payload: { ...body, endsAt: '2026-08-01T11:00:00Z' },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/scopes',
+      headers: { cookie },
+      payload: body,
+    });
+    expect(created.statusCode).toBe(201);
+    const scope = created.json().scope;
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/scopes/${scope.id}`,
+      headers: { cookie },
+      payload: { name: 'Assembly 2026 updated', version: scope.version },
+    });
+    expect(edited.statusCode).toBe(200);
+    const updated = edited.json().scope;
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/scopes/${scope.id}`,
+          headers: { cookie },
+          payload: { name: 'stale', version: scope.version },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/v1/admin/scopes/${scope.id}/transition`,
+          headers: { cookie },
+          payload: { status: 'VOTING_ACTIVE', version: updated.version },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const transitioned = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/scopes/${scope.id}/transition`,
+      headers: { cookie },
+      payload: { status: 'REGISTRATION_OPEN', version: updated.version },
+    });
+    expect(transitioned.statusCode).toBe(200);
+    expect(transitioned.json().scope.status).toBe('REGISTRATION_OPEN');
+    expect(
+      await prisma.auditEvent.count({ where: { targetType: 'VotingScope' } }),
+    ).toBe(3);
   });
 });

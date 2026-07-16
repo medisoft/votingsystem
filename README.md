@@ -45,5 +45,14 @@ Roles are SYSTEM_ADMIN, REGISTRATION_OPERATOR, and AUDITOR. Only a system admini
 - There are no voting scopes, voter records, activation tokens, or credentials yet.
 - Account editing, password reset, TOTP, and the complete audit viewer are deferred.
 - Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
+
+## Stage 3 voting scopes
+
+Authenticated administrators can list voting scopes. System administrators can create and edit scopes and advance them through DRAFT, REGISTRATION_OPEN, ACTIVATION_OPEN, VOTING_ACTIVE, CLOSED, and ARCHIVED. Transitions are one-way, date ranges are validated, optimistic versions reject stale writes, and every mutation is audited.
+
+The current UI supports creation, name editing while editable, and explicit forward transitions. Full detail-page editing and privileged exceptional rollback are deferred.
+
+Activation and voting windows may overlap. Each window must be internally ordered, and credential expiration must be after both windows end.
+
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
