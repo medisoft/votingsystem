@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { App } from './App';
 it('shows login when there is no session', async () => {
@@ -23,4 +23,53 @@ it('shows login when there is no session', async () => {
   expect(
     await screen.findByRole('heading', { name: 'Iniciar sesión' }),
   ).toBeInTheDocument();
+});
+
+it('does not send a JSON content type for bodyless logout', async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, _init?: RequestInit) => {
+      void _init;
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      if (path.endsWith('/api/v1/admin/users')) {
+        return { ok: true, status: 200, json: async () => ({ users: [] }) };
+      }
+      return { ok: true, status: 204, json: async () => undefined };
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/admin/auth/logout',
+      expect.objectContaining({ method: 'POST' }),
+    ),
+  );
+  const logoutCall = fetchMock.mock.calls.find(([url]) =>
+    String(url).endsWith('/api/v1/admin/auth/logout'),
+  )!;
+  expect((logoutCall[1]!.headers as Headers).has('content-type')).toBe(false);
 });
