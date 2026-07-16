@@ -18,15 +18,32 @@ After selecting the version in .nvmrc, install dependencies and generate the Pri
 
 That single Compose command starts PostgreSQL, the API, and the admin frontend. Open http://localhost:5173. The API runs on http://localhost:3000.
 
+The admin frontend uses same-origin API paths. When it is opened remotely (for example, http://ispy.local:5173), Vite proxies /api requests to the API container, so the remote browser never tries to contact its own localhost.
+
+Create or reset the initial system administrator after the stack is running:
+
+    ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='choose-at-least-12-characters' npm run db:seed
+
+The seed is idempotent for the supplied email. It hashes the password with Argon2id and never prints it.
+
+Database integration tests delete their target data and run only when ALLOW_DATABASE_RESET=true. Never enable that flag against a development or production database.
+
 For host-based development, copy each app's .env.example to .env, run npm run dev:infra, and then npm run dev.
 
 ## Verification
 
 Check /health/live, /health/ready, and /api/v1 on port 3000. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
 
-## Known Stage 1 limitations
+## Stage 2 authentication
 
-- No authentication, authorization, scopes, voter records, tokens, credentials, or audit events.
-- No application tables or migrations are needed yet.
+Administrative authentication uses an opaque, hashed, eight-hour server-side session in an HTTP-only, SameSite=Strict cookie. Five failed logins lock an account for 15 minutes. Login attempts, logout, and administrator creation are audited.
+
+Roles are SYSTEM_ADMIN, REGISTRATION_OPERATOR, and AUDITOR. Only a system administrator can list and create administrator accounts in this stage.
+
+## Known Stage 2 limitations
+
+- There are no voting scopes, voter records, activation tokens, or credentials yet.
+- Account editing, password reset, TOTP, and the complete audit viewer are deferred.
+- Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.

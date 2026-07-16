@@ -5,3 +5,65 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum AdminRole {
+  SYSTEM_ADMIN
+  REGISTRATION_OPERATOR
+  AUDITOR
+}
+
+enum AdminStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ActorType {
+  ADMIN
+  SYSTEM
+  ANONYMOUS
+}
+
+model AdminUser {
+  id               String         @id @default(uuid()) @db.Uuid
+  email            String         @unique
+  passwordHash     String
+  role             AdminRole
+  status           AdminStatus    @default(ACTIVE)
+  failedLoginCount Int            @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  sessions         AdminSession[]
+
+  @@index([status])
+}
+
+model AdminSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  tokenHash  String    @unique
+  adminId    String    @db.Uuid
+  admin      AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  rotatedAt  DateTime?
+  revokedAt  DateTime?
+
+  @@index([adminId, expiresAt])
+}
+
+model AuditEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  occurredAt   DateTime  @default(now())
+  actorType    ActorType
+  actorId      String?   @db.Uuid
+  eventType    String
+  targetType   String
+  targetId     String?
+  sourceIp     String?
+  metadata     Json
+  previousHash String?
+  eventHash    String    @unique
+
+  @@index([occurredAt])
+  @@index([eventType])
+}

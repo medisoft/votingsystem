@@ -15,7 +15,12 @@ services:
   api:
     image: node:24.15.0-bookworm
     working_dir: /workspace
-    command: npm run dev -w @voting/registration-api
+    command:
+      [
+        'sh',
+        '-c',
+        'npm run db:migrate -w @voting/registration-api && npm run dev -w @voting/registration-api',
+      ]
     environment:
       DATABASE_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
       ADMIN_ORIGIN: http://localhost:5173
@@ -40,7 +45,7 @@ services:
     working_dir: /workspace
     command: npm run dev -w @voting/registration-admin
     environment:
-      VITE_API_URL: http://localhost:3000
+      API_PROXY_TARGET: http://api:3000
     ports: ['5173:5173']
     volumes: ['.:/workspace']
     depends_on:

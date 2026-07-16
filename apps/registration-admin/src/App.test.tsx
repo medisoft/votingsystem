@@ -2,20 +2,25 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { App } from './App';
-it('renders the administration shell', async () => {
+it('shows login when there is no session', async () => {
   vi.stubGlobal(
     'fetch',
-    vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) }),
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ code: 'UNAUTHENTICATED' }),
+    }),
   );
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
       <App />
     </QueryClientProvider>,
   );
   expect(
-    screen.getByRole('heading', { name: 'Registro y credenciales' }),
+    await screen.findByRole('heading', { name: 'Iniciar sesión' }),
   ).toBeInTheDocument();
-  expect(await screen.findByText('Conectada')).toBeInTheDocument();
 });
