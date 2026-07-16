@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { createTranslator, detectLocale } from './i18n';
 
 // Empty by default so browsers use the same hostname that served the UI.
 // Vite proxies /api to the registration API during local/container development.
@@ -58,6 +59,30 @@ const nextStatus: Partial<Record<ScopeStatus, ScopeStatus>> = {
   CLOSED: 'ARCHIVED',
 };
 
+function useI18n() {
+  const locale = useMemo(() => detectLocale(), []);
+  const t = useMemo(() => createTranslator(locale), [locale]);
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+  return { locale, t };
+}
+
+type Translator = ReturnType<typeof createTranslator>;
+const statusMessage: Record<ScopeStatus, Parameters<Translator>[0]> = {
+  DRAFT: 'statusDraft',
+  REGISTRATION_OPEN: 'statusRegistrationOpen',
+  ACTIVATION_OPEN: 'statusActivationOpen',
+  VOTING_ACTIVE: 'statusVotingActive',
+  CLOSED: 'statusClosed',
+  ARCHIVED: 'statusArchived',
+};
+const roleMessage: Record<Role, Parameters<Translator>[0]> = {
+  SYSTEM_ADMIN: 'roleSystemAdmin',
+  REGISTRATION_OPERATOR: 'roleRegistrationOperator',
+  AUDITOR: 'roleAuditor',
+};
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has('content-type')) {
@@ -82,6 +107,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function Login() {
+  const { t } = useI18n();
   const client = useQueryClient();
   const [error, setError] = useState('');
   const login = useMutation({
@@ -94,8 +120,8 @@ function Login() {
     onError: (value) =>
       setError(
         value.message === 'INVALID_CREDENTIALS'
-          ? 'Correo o contraseña incorrectos.'
-          : 'No fue posible iniciar sesión.',
+          ? t('invalidCredentials')
+          : t('loginFailed'),
       ),
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -110,15 +136,15 @@ function Login() {
   return (
     <main>
       <section>
-        <p className="eyebrow">Administración</p>
-        <h1>Iniciar sesión</h1>
+        <p className="eyebrow">{t('admin')}</p>
+        <h1>{t('loginTitle')}</h1>
         <form onSubmit={submit}>
           <label>
-            Correo electrónico
+            {t('email')}
             <input name="email" type="email" autoComplete="username" required />
           </label>
           <label>
-            Contraseña
+            {t('password')}
             <input
               name="password"
               type="password"
@@ -132,7 +158,7 @@ function Login() {
             </p>
           )}
           <button disabled={login.isPending}>
-            {login.isPending ? 'Ingresando…' : 'Ingresar'}
+            {login.isPending ? t('signingIn') : t('signIn')}
           </button>
         </form>
       </section>
@@ -141,6 +167,7 @@ function Login() {
 }
 
 function Dashboard({ user }: { user: User }) {
+  const { locale, t } = useI18n();
   const client = useQueryClient();
   const [message, setMessage] = useState('');
   const users = useQuery({
@@ -175,11 +202,11 @@ function Dashboard({ user }: { user: User }) {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
     onSuccess: () => {
-      setMessage('Registro actualizado.');
+      setMessage(t('recordUpdated'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
     onError: (error) =>
-      setMessage('No fue posible guardar el registro: ' + error.message),
+      setMessage(t('recordSaveFailed', { error: error.message })),
   });
   const scopeMutation = useMutation({
     mutationFn: ({
@@ -192,11 +219,11 @@ function Dashboard({ user }: { user: User }) {
       method?: string;
     }) => api(path, { method, body: JSON.stringify(body) }),
     onSuccess: () => {
-      setMessage('Alcance actualizado.');
+      setMessage(t('scopeUpdated'));
       void client.invalidateQueries({ queryKey: ['scopes'] });
     },
     onError: (error) =>
-      setMessage('No fue posible guardar el alcance: ' + error.message),
+      setMessage(t('scopeSaveFailed', { error: error.message })),
   });
   const logout = useMutation({
     mutationFn: () => api('/api/v1/admin/auth/logout', { method: 'POST' }),
@@ -209,14 +236,14 @@ function Dashboard({ user }: { user: User }) {
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
-      setMessage('Administrador creado.');
+      setMessage(t('administratorCreated'));
       void client.invalidateQueries({ queryKey: ['users'] });
     },
     onError: (error) =>
       setMessage(
         error.message === 'EMAIL_EXISTS'
-          ? 'Ese correo ya está registrado.'
-          : 'No fue posible crear el usuario.',
+          ? t('emailExists')
+          : t('userCreateFailed'),
       ),
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -256,7 +283,7 @@ function Dashboard({ user }: { user: User }) {
     });
   };
   const renameScope = (scope: Scope) => {
-    const name = window.prompt('Nuevo nombre del alcance', scope.name);
+    const name = window.prompt(t('newScopeName'), scope.name);
     if (name && name.trim() !== scope.name)
       scopeMutation.mutate({
         path: `/api/v1/admin/scopes/${scope.id}`,
@@ -295,7 +322,7 @@ function Dashboard({ user }: { user: User }) {
     });
   };
   const editRegistration = (record: Registration) => {
-    const ownerName = window.prompt('Nombre del propietario', record.ownerName);
+    const ownerName = window.prompt(t('ownerNamePrompt'), record.ownerName);
     if (ownerName && ownerName.trim() !== record.ownerName)
       registrationMutation.mutate({
         path: `/api/v1/admin/registrations/${record.id}`,
@@ -305,9 +332,7 @@ function Dashboard({ user }: { user: User }) {
   };
   const deleteRegistration = (record: Registration) => {
     if (
-      window.confirm(
-        `¿Desactivar ${record.unitNumber}? Se conservará su historial.`,
-      )
+      window.confirm(t('deactivateConfirm', { unit: record.unitNumber ?? '' }))
     )
       registrationMutation.mutate({
         path: `/api/v1/admin/registrations/${record.id}`,
@@ -319,29 +344,26 @@ function Dashboard({ user }: { user: User }) {
       <section className="wide">
         <header>
           <div>
-            <p className="eyebrow">Administración</p>
-            <h1>Panel de registro</h1>
+            <p className="eyebrow">{t('admin')}</p>
+            <h1>{t('dashboardTitle')}</h1>
             <p>
-              {user.email} · {user.role}
+              {user.email} · {t(roleMessage[user.role])}
             </p>
           </div>
           <button className="secondary" onClick={() => logout.mutate()}>
-            Cerrar sesión
+            {t('signOut')}
           </button>
         </header>
-        <h2>Registro de votantes</h2>
+        <h2>{t('voterRecords')}</h2>
         {user.role === 'AUDITOR' ? (
-          <p>
-            Vista de auditoría: los datos personales y la búsqueda por identidad
-            están ocultos.
-          </p>
+          <p>{t('auditorNotice')}</p>
         ) : (
           <label>
-            Buscar por unidad, nombre, representante o correo
+            {t('searchRecords')}
             <input
               value={registrationSearch}
               onChange={(event) => setRegistrationSearch(event.target.value)}
-              placeholder="Buscar…"
+              placeholder={t('searchPlaceholder')}
             />
           </label>
         )}
@@ -349,23 +371,23 @@ function Dashboard({ user }: { user: User }) {
           {registrations.data?.records.map((record) => (
             <li key={record.id}>
               <span>
-                <strong>{record.unitNumber ?? 'Registro protegido'}</strong>
+                <strong>{record.unitNumber ?? t('protectedRecord')}</strong>
                 {record.ownerName ? ` · ${record.ownerName}` : ''}
                 <br />
-                {record.email ?? 'Sin correo'}
+                {record.email ?? t('noEmail')}
                 {' · '}
-                {record.phone ?? 'Sin teléfono'}
+                {record.phone ?? t('noPhone')}
               </span>
               <span>
-                {record.eligible ? 'Elegible' : 'No elegible'} · peso{' '}
-                {record.votingWeight}
+                {record.eligible ? t('eligible') : t('notEligible')} ·{' '}
+                {t('weight')} {record.votingWeight}
                 <br />
                 {record.scopeEligibilities
                   .map(
                     (item) =>
-                      `${item.votingScope.name}: ${item.eligible ? 'sí' : 'no'} (${item.votingWeight})`,
+                      `${item.votingScope.name}: ${item.eligible ? t('yes') : t('no')} (${item.votingWeight})`,
                   )
-                  .join(', ') || 'Sin elegibilidad por alcance'}
+                  .join(', ') || t('noScopeEligibility')}
                 {user.role !== 'AUDITOR' && (
                   <>
                     <br />
@@ -373,7 +395,7 @@ function Dashboard({ user }: { user: User }) {
                       className="small secondary"
                       onClick={() => editRegistration(record)}
                     >
-                      Editar propietario
+                      {t('editOwner')}
                     </button>
                   </>
                 )}
@@ -384,7 +406,7 @@ function Dashboard({ user }: { user: User }) {
                       className="small secondary"
                       onClick={() => deleteRegistration(record)}
                     >
-                      Desactivar
+                      {t('deactivate')}
                     </button>
                   </>
                 )}
@@ -394,30 +416,30 @@ function Dashboard({ user }: { user: User }) {
         </ul>
         {user.role !== 'AUDITOR' && (
           <>
-            <h2>Crear registro</h2>
+            <h2>{t('createRecord')}</h2>
             <form onSubmit={createRegistration}>
               <label>
-                Unidad
+                {t('unit')}
                 <input name="unitNumber" required />
               </label>
               <label>
-                Propietario
+                {t('owner')}
                 <input name="ownerName" required />
               </label>
               <label>
-                Representante autorizado
+                {t('representative')}
                 <input name="representativeName" />
               </label>
               <label>
-                Correo
+                {t('email')}
                 <input name="recordEmail" type="email" />
               </label>
               <label>
-                Teléfono
+                {t('phone')}
                 <input name="phone" />
               </label>
               <label>
-                Peso de voto
+                {t('votingWeight')}
                 <input
                   name="votingWeight"
                   inputMode="decimal"
@@ -427,17 +449,17 @@ function Dashboard({ user }: { user: User }) {
                 />
               </label>
               <label>
-                Notas
+                {t('notes')}
                 <input name="notes" />
               </label>
               <button disabled={registrationMutation.isPending}>
-                Crear registro
+                {t('createRecord')}
               </button>
             </form>
-            <h2>Elegibilidad por alcance</h2>
+            <h2>{t('scopeEligibility')}</h2>
             <form onSubmit={setEligibility}>
               <label>
-                Registro
+                {t('record')}
                 <select name="recordId" required>
                   {registrations.data?.records.map((record) => (
                     <option key={record.id} value={record.id}>
@@ -447,7 +469,7 @@ function Dashboard({ user }: { user: User }) {
                 </select>
               </label>
               <label>
-                Alcance
+                {t('scope')}
                 <select name="scopeId" required>
                   {scopes.data?.scopes.map((scope) => (
                     <option key={scope.id} value={scope.id}>
@@ -457,7 +479,7 @@ function Dashboard({ user }: { user: User }) {
                 </select>
               </label>
               <label>
-                Peso en este alcance
+                {t('scopeWeight')}
                 <input
                   name="scopeWeight"
                   inputMode="decimal"
@@ -467,29 +489,27 @@ function Dashboard({ user }: { user: User }) {
               </label>
               <label className="check">
                 <input name="scopeEligible" type="checkbox" defaultChecked />
-                Elegible en este alcance
+                {t('eligibleInScope')}
               </label>
               <button disabled={registrationMutation.isPending}>
-                Guardar elegibilidad
+                {t('saveEligibility')}
               </button>
             </form>
           </>
         )}
-        <h2>Alcances de votación</h2>
-        {scopes.isError && (
-          <p role="alert">No fue posible cargar los alcances.</p>
-        )}
+        <h2>{t('votingScopes')}</h2>
+        {scopes.isError && <p role="alert">{t('scopesLoadFailed')}</p>}
         <ul>
           {scopes.data?.scopes.map((scope) => (
             <li key={scope.id}>
               <span>
                 <strong>{scope.name}</strong>
                 <br />
-                {new Date(scope.startsAt).toLocaleString()} —{' '}
-                {new Date(scope.endsAt).toLocaleString()}
+                {new Date(scope.startsAt).toLocaleString(locale)} —{' '}
+                {new Date(scope.endsAt).toLocaleString(locale)}
               </span>
               <span>
-                {scope.status} · v{scope.version}
+                {t(statusMessage[scope.status])} · v{scope.version}
                 {user.role === 'SYSTEM_ADMIN' &&
                   (scope.status === 'DRAFT' ||
                     scope.status === 'REGISTRATION_OPEN') && (
@@ -499,7 +519,7 @@ function Dashboard({ user }: { user: User }) {
                         className="small secondary"
                         onClick={() => renameScope(scope)}
                       >
-                        Editar nombre
+                        {t('editName')}
                       </button>
                     </>
                   )}
@@ -518,7 +538,9 @@ function Dashboard({ user }: { user: User }) {
                         })
                       }
                     >
-                      Avanzar a {nextStatus[scope.status]}
+                      {t('advanceTo', {
+                        status: t(statusMessage[nextStatus[scope.status]!]),
+                      })}
                     </button>
                   </>
                 )}
@@ -528,22 +550,19 @@ function Dashboard({ user }: { user: User }) {
         </ul>
         {user.role === 'SYSTEM_ADMIN' && (
           <>
-            <h2>Crear alcance</h2>
+            <h2>{t('createScope')}</h2>
             <form onSubmit={createScope}>
               <label>
-                Nombre
+                {t('name')}
                 <input name="name" required />
               </label>
               <label>
-                Descripción
+                {t('description')}
                 <input name="description" />
               </label>
               <label>
-                Inicio de activación
-                <small>
-                  Desde cuándo los residentes pueden canjear su QR y obtener una
-                  credencial.
-                </small>
+                {t('activationStart')}
+                <small>{t('activationStartHelp')}</small>
                 <input
                   name="activationStartsAt"
                   type="datetime-local"
@@ -551,28 +570,23 @@ function Dashboard({ user }: { user: User }) {
                 />
               </label>
               <label>
-                Fin de activación
-                <small>
-                  Último momento para activar una credencial. Puede coincidir
-                  con la votación.
-                </small>
+                {t('activationEnd')}
+                <small>{t('activationEndHelp')}</small>
                 <input name="activationEndsAt" type="datetime-local" required />
               </label>
               <label>
-                Inicio de votación
-                <small>Desde cuándo el servidor acepta votos.</small>
+                {t('votingStart')}
+                <small>{t('votingStartHelp')}</small>
                 <input name="startsAt" type="datetime-local" required />
               </label>
               <label>
-                Fin de votación
-                <small>Después de este momento ya no se aceptan votos.</small>
+                {t('votingEnd')}
+                <small>{t('votingEndHelp')}</small>
                 <input name="endsAt" type="datetime-local" required />
               </label>
               <label>
-                Expiración de credencial
-                <small>
-                  Debe ser posterior al final de activación y de votación.
-                </small>
+                {t('credentialExpiration')}
+                <small>{t('credentialExpirationHelp')}</small>
                 <input
                   name="credentialExpiresAt"
                   type="datetime-local"
@@ -580,7 +594,7 @@ function Dashboard({ user }: { user: User }) {
                 />
               </label>
               <label>
-                Versión de clave emisora
+                {t('issuerKeyVersion')}
                 <input
                   name="issuerKeyVersion"
                   defaultValue="2026-01"
@@ -589,38 +603,36 @@ function Dashboard({ user }: { user: User }) {
               </label>
               <label className="check">
                 <input name="votingWeightsEnabled" type="checkbox" />
-                Usar diferentes pesos de voto según la unidad o el derecho de
-                voto
+                {t('weightedVoting')}
               </label>
-              <small>
-                Déjalo desmarcado si cada unidad cuenta exactamente como un
-                voto.
-              </small>
-              <button disabled={scopeMutation.isPending}>Crear alcance</button>
+              <small>{t('weightedVotingHelp')}</small>
+              <button disabled={scopeMutation.isPending}>
+                {t('createScope')}
+              </button>
             </form>
           </>
         )}
         {user.role === 'SYSTEM_ADMIN' ? (
           <>
-            <h2>Administradores</h2>
+            <h2>{t('administrators')}</h2>
             <ul>
               {users.data?.users.map((item) => (
                 <li key={item.id}>
                   <span>{item.email}</span>
                   <span>
-                    {item.role} · {item.status}
+                    {t(roleMessage[item.role])} · {item.status}
                   </span>
                 </li>
               ))}
             </ul>
-            <h2>Crear administrador</h2>
+            <h2>{t('createAdministrator')}</h2>
             <form onSubmit={submit}>
               <label>
-                Correo
+                {t('email')}
                 <input name="email" type="email" required />
               </label>
               <label>
-                Contraseña temporal
+                {t('temporaryPassword')}
                 <input
                   name="password"
                   type="password"
@@ -629,26 +641,21 @@ function Dashboard({ user }: { user: User }) {
                 />
               </label>
               <label>
-                Rol
+                {t('role')}
                 <select name="role">
                   <option value="REGISTRATION_OPERATOR">
-                    Operador de registro
+                    {t('roleRegistrationOperator')}
                   </option>
-                  <option value="AUDITOR">Auditor</option>
-                  <option value="SYSTEM_ADMIN">
-                    Administrador del sistema
-                  </option>
+                  <option value="AUDITOR">{t('roleAuditor')}</option>
+                  <option value="SYSTEM_ADMIN">{t('roleSystemAdmin')}</option>
                 </select>
               </label>
               {message && <p role="status">{message}</p>}
-              <button disabled={create.isPending}>Crear usuario</button>
+              <button disabled={create.isPending}>{t('createUser')}</button>
             </form>
           </>
         ) : (
-          <p>
-            Tu sesión está activa. Las funciones para este rol se añadirán en
-            las siguientes etapas.
-          </p>
+          <p>{t('restrictedRoleNotice')}</p>
         )}
       </section>
     </main>
@@ -656,6 +663,7 @@ function Dashboard({ user }: { user: User }) {
 }
 
 export function App() {
+  const { t } = useI18n();
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api<{ user: User }>('/api/v1/admin/me'),
@@ -664,7 +672,7 @@ export function App() {
   if (me.isPending)
     return (
       <main>
-        <p>Comprobando sesión…</p>
+        <p>{t('checkingSession')}</p>
       </main>
     );
   return me.data ? <Dashboard user={me.data.user} /> : <Login />;

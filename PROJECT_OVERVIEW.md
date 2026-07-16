@@ -104,6 +104,14 @@ Independent observers must be able to reconstruct the published results from the
 
 ---
 
+## Internationalization
+
+User-facing applications are designed for localization. The registration administration interface currently supports English and Spanish, detects browser language preferences, and falls back to English when no supported language is detected.
+
+Translation catalogs are ordinary source files. Every message includes an English description of its purpose and context so translators can produce accurate translations without reverse-engineering the interface. Source code, API contracts, and developer documentation remain in English.
+
+---
+
 # Project Goals
 
 The initial goal is to build a practical voting system for condominium assemblies.
@@ -377,6 +385,8 @@ It is an open engineering project exploring transparent digital voting.
 The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
+
+Registration Service Stages 1–4 are complete. Stage 4.1 adds English and Spanish localization to the administrative interface before CSV import work begins in Stage 5.
 
 The MVP will prioritize:
 

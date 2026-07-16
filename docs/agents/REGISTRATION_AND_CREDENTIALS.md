@@ -951,6 +951,30 @@ Acceptance criteria:
 
 ---
 
+## Stage 4.1 — Internationalization
+
+Implement:
+
+* English and Spanish administrative-interface messages.
+* Browser-language detection using the browser's ordered language preferences.
+* English as the fallback when no supported language can be detected.
+* Locale-aware date and time formatting.
+* Localized role and voting-scope status labels.
+* Translator-friendly message catalogs that include an English description of every message's purpose and context.
+* Automated tests for detection, fallback, translation selection, and message interpolation.
+
+Keep source-code identifiers, API contracts, error codes, and developer documentation in English. User-visible messages must use the localization layer rather than hard-coded text. Message catalogs must remain editable as ordinary source files without requiring an external translation service.
+
+Acceptance criteria:
+
+* A browser preferring Spanish displays the administrative interface in Spanish.
+* English and unsupported browser languages display the interface in English.
+* The document language and locale-aware dates match the selected language.
+* Each message has enough English context for a translator to understand its purpose.
+* Adding or updating a translation requires only a simple message-catalog edit.
+
+---
+
 ## Stage 5 — CSV Import
 
 Implement:

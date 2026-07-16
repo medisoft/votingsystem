@@ -20,6 +20,8 @@ That single Compose command starts PostgreSQL, the API, and the admin frontend. 
 
 The admin frontend uses same-origin API paths. When it is opened remotely (for example, http://ispy.local:5173), Vite proxies /api requests to the API container, so the remote browser never tries to contact its own localhost.
 
+PostgreSQL is exposed to the host on port `15432`; containers continue to connect to it internally on port `5432`.
+
 Create or reset the initial system administrator after the stack is running:
 
     ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='choose-at-least-12-characters' npm run db:seed
@@ -57,6 +59,14 @@ Activation and voting windows may overlap. Each window must be internally ordere
 ## Stage 4 registration records
 
 Administrators and registration operators can create, search, update, and assign per-scope eligibility to voting-entitlement records. Weights use PostgreSQL DECIMAL(12,4), never floating-point storage. System administrators may soft-delete records; auditors have read-only access. All mutations are audited and stale updates are rejected using record versions.
+
+## Stage 4.1 internationalization
+
+The administrative interface supports English and Spanish. It checks the browser's ordered language preferences, selects Spanish when Spanish is present, and otherwise defaults to English. The selected locale also controls document language, dates, role names, and voting-scope status labels.
+
+User-visible text is maintained in `apps/registration-admin/src/i18n/messages.ts`. Every message contains an English description of its purpose plus its English and Spanish text, so translators can update the catalog with a simple file edit. Source identifiers, API error codes, and developer-facing documentation remain in English.
+
+Known limitation: users cannot override the detected language from inside the interface yet; a persistent language selector can be added in a later stage.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
