@@ -36,6 +36,15 @@ suite('administrative authentication', () => {
         role: AdminRole.SYSTEM_ADMIN,
       },
     });
+    await prisma.adminUser.create({
+      data: {
+        email: 'auditor@example.com',
+        passwordHash: await argon2.hash('auditor-password', {
+          type: argon2.argon2id,
+        }),
+        role: AdminRole.AUDITOR,
+      },
+    });
     app = await buildApp(config);
   });
   afterAll(async () => app.close());
@@ -204,6 +213,14 @@ suite('administrative authentication', () => {
       ).statusCode,
     ).toBe(409);
     const record = created.json().record;
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/registrations?eligible=1',
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(400);
     const search = await app.inject({
       url: '/api/v1/admin/registrations?search=A-101',
       headers: { cookie },
@@ -218,6 +235,50 @@ suite('administrative authentication', () => {
     });
     expect(eligibility.statusCode).toBe(200);
     expect(eligibility.json().eligibility.votingWeight).toBe('2.5');
+    const auditorLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'auditor@example.com', password: 'auditor-password' },
+    });
+    const auditorRaw = auditorLogin.headers['set-cookie']!;
+    const auditorCookie = (
+      Array.isArray(auditorRaw) ? auditorRaw[0]! : auditorRaw
+    ).split(';')[0]!;
+    const auditorList = await app.inject({
+      url: '/api/v1/admin/registrations',
+      headers: { cookie: auditorCookie },
+    });
+    const auditorRecord = auditorList.json().records[0];
+    expect(auditorRecord).not.toHaveProperty('ownerName');
+    expect(auditorRecord).not.toHaveProperty('email');
+    expect(auditorRecord).not.toHaveProperty('phone');
+    expect(auditorRecord).not.toHaveProperty('notes');
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/registrations?search=A-101',
+          headers: { cookie: auditorCookie },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const currentScope = await prisma.votingScope.findUniqueOrThrow({
+      where: { id: scope.id },
+    });
+    await app.prisma.votingScope.update({
+      where: { id: scope.id },
+      data: { status: 'ACTIVATION_OPEN', version: { increment: 1 } },
+    });
+    expect(currentScope.status).toBe('REGISTRATION_OPEN');
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: `/api/v1/admin/registrations/${record.id}/scopes/${scope.id}`,
+          headers: { cookie },
+          payload: { eligible: false, votingWeight: '1.0000' },
+        })
+      ).statusCode,
+    ).toBe(409);
     expect(
       (
         await app.inject({

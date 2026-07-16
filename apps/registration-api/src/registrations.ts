@@ -1,4 +1,9 @@
-import { ActorType, Prisma, RegistrationStatus } from '@prisma/client';
+import {
+  ActorType,
+  Prisma,
+  RegistrationStatus,
+  VotingScopeStatus,
+} from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
@@ -29,20 +34,41 @@ const include = {
     },
   },
 };
+const auditorSelect = {
+  id: true,
+  eligible: true,
+  status: true,
+  votingWeight: true,
+  version: true,
+  createdAt: true,
+  updatedAt: true,
+  scopeEligibilities: {
+    select: {
+      eligible: true,
+      votingWeight: true,
+      votingScope: { select: { id: true, name: true, status: true } },
+    },
+  },
+} satisfies Prisma.RegistrationRecordSelect;
 
 export function registerRegistrationRoutes(app: FastifyInstance) {
   app.get(
     '/api/v1/admin/registrations',
     { preHandler: app.authenticateAdmin },
-    async (request) => {
-      const q = z
+    async (request, reply) => {
+      const parsed = z
         .object({
           search: z.string().optional(),
           eligible: z.enum(['true', 'false']).optional(),
           status: z.nativeEnum(RegistrationStatus).optional(),
         })
-        .parse(request.query);
-      const records = await app.prisma.registrationRecord.findMany({
+        .safeParse(request.query);
+      if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_QUERY' });
+      const q = parsed.data;
+      if (request.admin?.role === 'AUDITOR' && q.search)
+        return reply.code(403).send({ code: 'AUDITOR_SEARCH_RESTRICTED' });
+      const args = {
         where: {
           deletedAt: null,
           ...(q.eligible ? { eligible: q.eligible === 'true' } : {}),
@@ -63,10 +89,19 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
               }
             : {}),
         },
-        include,
         orderBy: { unitNumber: 'asc' },
         take: 500,
-      });
+      } satisfies Prisma.RegistrationRecordFindManyArgs;
+      const records =
+        request.admin?.role === 'AUDITOR'
+          ? await app.prisma.registrationRecord.findMany({
+              ...args,
+              select: auditorSelect,
+            })
+          : await app.prisma.registrationRecord.findMany({
+              ...args,
+              include,
+            });
       return { records };
     },
   );
@@ -76,10 +111,16 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const p = z.object({ id: uuid }).safeParse(request.params);
       if (!p.success) return reply.code(400).send({ code: 'INVALID_ID' });
-      const record = await app.prisma.registrationRecord.findUnique({
-        where: { id: p.data.id },
-        include,
-      });
+      const record =
+        request.admin?.role === 'AUDITOR'
+          ? await app.prisma.registrationRecord.findUnique({
+              where: { id: p.data.id },
+              select: auditorSelect,
+            })
+          : await app.prisma.registrationRecord.findUnique({
+              where: { id: p.data.id },
+              include,
+            });
       return record
         ? { record }
         : reply.code(404).send({ code: 'REGISTRATION_NOT_FOUND' });
@@ -201,6 +242,11 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         });
       if (!record || !scope)
         return reply.code(404).send({ code: 'RECORD_OR_SCOPE_NOT_FOUND' });
+      if (
+        scope.status !== VotingScopeStatus.DRAFT &&
+        scope.status !== VotingScopeStatus.REGISTRATION_OPEN
+      )
+        return reply.code(409).send({ code: 'SCOPE_REGISTRATION_CLOSED' });
       const data = {
         eligible: body.data.eligible,
         votingWeight: new Prisma.Decimal(body.data.votingWeight),

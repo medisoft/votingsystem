@@ -35,11 +35,11 @@ interface Scope {
 }
 interface Registration {
   id: string;
-  unitNumber: string;
-  ownerName: string;
-  representativeName: string | null;
-  email: string | null;
-  phone: string | null;
+  unitNumber?: string;
+  ownerName?: string;
+  representativeName?: string | null;
+  email?: string | null;
+  phone?: string | null;
   votingWeight: string;
   eligible: boolean;
   status: 'ACTIVE' | 'INACTIVE';
@@ -330,19 +330,27 @@ function Dashboard({ user }: { user: User }) {
           </button>
         </header>
         <h2>Registro de votantes</h2>
-        <label>
-          Buscar por unidad, nombre, representante o correo
-          <input
-            value={registrationSearch}
-            onChange={(event) => setRegistrationSearch(event.target.value)}
-            placeholder="Buscar…"
-          />
-        </label>
+        {user.role === 'AUDITOR' ? (
+          <p>
+            Vista de auditoría: los datos personales y la búsqueda por identidad
+            están ocultos.
+          </p>
+        ) : (
+          <label>
+            Buscar por unidad, nombre, representante o correo
+            <input
+              value={registrationSearch}
+              onChange={(event) => setRegistrationSearch(event.target.value)}
+              placeholder="Buscar…"
+            />
+          </label>
+        )}
         <ul>
           {registrations.data?.records.map((record) => (
             <li key={record.id}>
               <span>
-                <strong>{record.unitNumber}</strong> · {record.ownerName}
+                <strong>{record.unitNumber ?? 'Registro protegido'}</strong>
+                {record.ownerName ? ` · ${record.ownerName}` : ''}
                 <br />
                 {record.email ?? 'Sin correo'}
                 {' · '}
