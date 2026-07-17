@@ -190,12 +190,18 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         changes.votingWeight = new Prisma.Decimal(raw.votingWeight);
       let result;
       try {
-        result = await app.prisma.registrationRecord.updateMany({
-          where: { id: p.data.id, version, deletedAt: null },
-          data: {
-            ...changes,
-            version: { increment: 1 },
-          } as Prisma.RegistrationRecordUpdateManyMutationInput,
+        result = await app.prisma.$transaction(async (tx) => {
+          if (raw.unitNumber)
+            await tx.$executeRaw(
+              Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+            );
+          return tx.registrationRecord.updateMany({
+            where: { id: p.data.id, version, deletedAt: null },
+            data: {
+              ...changes,
+              version: { increment: 1 },
+            } as Prisma.RegistrationRecordUpdateManyMutationInput,
+          });
         });
       } catch (error) {
         if (

@@ -571,4 +571,52 @@ case-existing-501,Imported owner
     });
     expect((await pending).statusCode).toBe(201);
   });
+  it('serializes unit-number updates with imports', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.6',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const rawCookie = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie).split(
+      ';',
+    )[0]!;
+    const record = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'PATCH-LOCK-SOURCE',
+        ownerName: 'Patch lock test',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    let completed = false;
+    let pending!: Promise<Awaited<ReturnType<typeof app.inject>>>;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+      );
+      pending = app
+        .inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/registrations/${record.id}`,
+          headers: { cookie },
+          payload: {
+            unitNumber: 'PATCH-LOCK-TARGET',
+            version: record.version,
+          },
+        })
+        .then((response) => {
+          completed = true;
+          return response;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(completed).toBe(false);
+    });
+    expect((await pending).statusCode).toBe(200);
+    expect(
+      await prisma.registrationRecord.findUnique({
+        where: { unitNumber: 'PATCH-LOCK-TARGET' },
+      }),
+    ).not.toBeNull();
+  });
 });
