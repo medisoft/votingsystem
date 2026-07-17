@@ -21,7 +21,7 @@ it('shows login when there is no session', async () => {
     </QueryClientProvider>,
   );
   expect(
-    await screen.findByRole('heading', { name: 'Iniciar sesión' }),
+    await screen.findByRole('heading', { name: 'Sign in' }),
   ).toBeInTheDocument();
 });
 
@@ -67,7 +67,7 @@ it('does not send a JSON content type for bodyless logout', async () => {
       <App />
     </QueryClientProvider>,
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/admin/auth/logout',
