@@ -338,6 +338,7 @@ function Dashboard({ user }: { user: User }) {
       registrationMutation.mutate({
         path: `/api/v1/admin/registrations/${record.id}`,
         method: 'DELETE',
+        body: { version: record.version },
       });
   };
   return (
