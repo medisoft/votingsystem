@@ -2,7 +2,10 @@ import { AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { REGISTRATION_WRITE_LOCK } from '../src/imports.js';
+import {
+  IMPORT_TRANSACTION_TIMEOUT_MS,
+  REGISTRATION_WRITE_LOCK,
+} from '../src/imports.js';
 import type { AppConfig } from '../src/config.js';
 import { prisma } from '../src/plugins/database.js';
 import { assertSafeTestDatabase } from './database-safety.js';
@@ -535,6 +538,47 @@ case-existing-501,Imported owner
       'DUPLICATE_EXISTING',
     );
   });
+
+  it('allows import commits to wait beyond Prisma default transaction timeout', async () => {
+    expect(IMPORT_TRANSACTION_TIMEOUT_MS).toBeGreaterThan(5_000);
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.8',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const raw = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    let completed = false;
+    let pending!: Promise<Awaited<ReturnType<typeof app.inject>>>;
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+        );
+        pending = app
+          .inject({
+            method: 'POST',
+            url: '/api/v1/admin/registrations/import',
+            headers: { cookie },
+            payload: {
+              fileName: 'lock-wait.csv',
+              csv: `unit_number,owner_name
+IMPORT-LOCK-WAIT,Waiting owner
+`,
+            },
+          })
+          .then((response) => {
+            completed = true;
+            return response;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 5_250));
+        expect(completed).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
+    expect((await pending).statusCode).toBe(201);
+  }, 12_000);
 
   it('serializes manual registration creation with imports', async () => {
     const login = await app.inject({

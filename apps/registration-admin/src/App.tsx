@@ -301,6 +301,7 @@ function Dashboard({ user }: { user: User }) {
         body: JSON.stringify(source),
       }),
     onSuccess: (result) => {
+      setImportSource(null);
       setImportResult(result);
       setMessage(t('importCommitted'));
       void client.invalidateQueries({ queryKey: ['registrations'] });

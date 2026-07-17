@@ -17,6 +17,7 @@ const importBody = z.object({
 const idParams = z.object({ id: z.string().uuid() });
 type ImportDb = PrismaClient | Prisma.TransactionClient;
 export const REGISTRATION_WRITE_LOCK = 2026071705;
+export const IMPORT_TRANSACTION_TIMEOUT_MS = 60_000;
 
 async function previewImport(db: ImportDb, csv: string) {
   const parsed = parseRegistrationCsv(csv);
@@ -89,42 +90,45 @@ export function registerImportRoutes(app: FastifyInstance) {
       const body = importBody.safeParse(request.body);
       if (!body.success)
         return reply.code(400).send({ code: 'INVALID_IMPORT_REQUEST' });
-      const result = await app.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw(
-          Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
-        );
-        const fileHash = parseRegistrationCsv(body.data.csv).fileHash;
-        const previous = await tx.registrationImport.findUnique({
-          where: { fileHash },
-        });
-        if (previous) return { previous } as const;
-        const preview = await previewImport(tx, body.data.csv);
-        if (preview.errors.length || preview.summary.valid === 0)
-          return { invalid: preview } as const;
-        const validRows = preview.rows.flatMap((row) =>
-          row.data ? [row.data] : [],
-        );
-        if (validRows.length)
-          await tx.registrationRecord.createMany({
-            data: validRows.map((row) => ({
-              ...row,
-              votingWeight: new Prisma.Decimal(row.votingWeight),
-            })),
+      const result = await app.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+          );
+          const fileHash = parseRegistrationCsv(body.data.csv).fileHash;
+          const previous = await tx.registrationImport.findUnique({
+            where: { fileHash },
           });
-        const rowErrors = preview.rows.flatMap((row) => row.errors);
-        const record = await tx.registrationImport.create({
-          data: {
-            fileHash: preview.fileHash,
-            fileName: body.data.fileName,
-            totalRows: preview.summary.total,
-            importedRows: preview.summary.valid,
-            rejectedRows: preview.summary.rejected,
-            errors: rowErrors as unknown as Prisma.InputJsonValue,
-            createdBy: request.admin!.id,
-          },
-        });
-        return { record, rowErrors } as const;
-      });
+          if (previous) return { previous } as const;
+          const preview = await previewImport(tx, body.data.csv);
+          if (preview.errors.length || preview.summary.valid === 0)
+            return { invalid: preview } as const;
+          const validRows = preview.rows.flatMap((row) =>
+            row.data ? [row.data] : [],
+          );
+          if (validRows.length)
+            await tx.registrationRecord.createMany({
+              data: validRows.map((row) => ({
+                ...row,
+                votingWeight: new Prisma.Decimal(row.votingWeight),
+              })),
+            });
+          const rowErrors = preview.rows.flatMap((row) => row.errors);
+          const record = await tx.registrationImport.create({
+            data: {
+              fileHash: preview.fileHash,
+              fileName: body.data.fileName,
+              totalRows: preview.summary.total,
+              importedRows: preview.summary.valid,
+              rejectedRows: preview.summary.rejected,
+              errors: rowErrors as unknown as Prisma.InputJsonValue,
+              createdBy: request.admin!.id,
+            },
+          });
+          return { record, rowErrors } as const;
+        },
+        { timeout: IMPORT_TRANSACTION_TIMEOUT_MS },
+      );
       if ('previous' in result)
         return reply.code(409).send({
           code: 'IMPORT_ALREADY_COMMITTED',
