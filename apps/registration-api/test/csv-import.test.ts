@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { errorsToCsv, parseRegistrationCsv } from '../src/csv-import.js';
+import {
+  MAX_CSV_BYTES,
+  MAX_IMPORT_JSON_BYTES,
+  errorsToCsv,
+  parseRegistrationCsv,
+} from '../src/csv-import.js';
 
 describe('registration CSV parsing', () => {
   it('parses quoted fields, defaults, and booleans', () => {
@@ -14,6 +19,44 @@ describe('registration CSV parsing', () => {
       eligible: false,
       votingWeight: '1.0000',
     });
+  });
+
+  it('applies defaults to blank optional cells', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,voting_weight,eligible,status
+A-1,Owner,,,
+`,
+    );
+    expect(result.rows[0]?.data).toMatchObject({
+      votingWeight: '1.0000',
+      eligible: true,
+      status: 'ACTIVE',
+    });
+  });
+
+  it('preserves physical row numbers after blank lines', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,email
+
+A-1,Owner,invalid
+`,
+    );
+    expect(result.rows[0]?.errors[0]?.row).toBe(3);
+  });
+
+  it('uses stable validation messages without rejected source values', () => {
+    const rejected = 'NOT_A_REAL_STATUS';
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,status
+A-1,Owner,${rejected}
+`,
+    );
+    expect(result.rows[0]?.errors[0]?.message).toBe('Field value is invalid.');
+    expect(errorsToCsv(result.rows[0]!.errors)).not.toContain(rejected);
+  });
+
+  it('allows worst-case JSON encoding overhead around the CSV limit', () => {
+    expect(MAX_IMPORT_JSON_BYTES).toBeGreaterThan(MAX_CSV_BYTES * 6);
   });
 
   it('reports field errors and deterministically rejects later duplicate rows', () => {

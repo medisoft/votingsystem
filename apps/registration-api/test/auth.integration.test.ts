@@ -2,6 +2,7 @@ import { AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { REGISTRATION_WRITE_LOCK } from '../src/imports.js';
 import type { AppConfig } from '../src/config.js';
 import { prisma } from '../src/plugins/database.js';
 import { assertSafeTestDatabase } from './database-safety.js';
@@ -497,5 +498,77 @@ suite('administrative authentication', () => {
       importedRows: 1,
       rejectedRows: 2,
     });
+  });
+  it('detects existing units case-insensitively during import preview', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.4',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const raw = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'Case-Existing-501',
+        ownerName: 'Existing owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import/preview',
+      headers: { cookie },
+      payload: {
+        fileName: 'case.csv',
+        csv: `unit_number,owner_name
+case-existing-501,Imported owner
+`,
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().preview.summary).toMatchObject({
+      valid: 0,
+      rejected: 1,
+    });
+    expect(preview.json().preview.rows[0].errors[0].code).toBe(
+      'DUPLICATE_EXISTING',
+    );
+  });
+
+  it('serializes manual registration creation with imports', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.5',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const raw = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    let completed = false;
+    let pending!: Promise<Awaited<ReturnType<typeof app.inject>>>;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+      );
+      pending = app
+        .inject({
+          method: 'POST',
+          url: '/api/v1/admin/registrations',
+          headers: { cookie },
+          payload: {
+            unitNumber: 'LOCK-501',
+            ownerName: 'Lock test',
+            votingWeight: '1.0000',
+          },
+        })
+        .then((response) => {
+          completed = true;
+          return response;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(completed).toBe(false);
+    });
+    expect((await pending).statusCode).toBe(201);
   });
 });

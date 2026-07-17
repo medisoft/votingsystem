@@ -270,7 +270,8 @@ function Dashboard({ user }: { user: User }) {
         '/api/v1/admin/registrations/import/preview',
         { method: 'POST', body: JSON.stringify(source) },
       ),
-    onSuccess: ({ preview }) => {
+    onSuccess: ({ preview }, source) => {
+      setImportSource(source);
       setImportPreview(preview);
       setImportResult(null);
     },
@@ -299,8 +300,10 @@ function Dashboard({ user }: { user: User }) {
     setMessage('');
     const file = new FormData(event.currentTarget).get('csvFile');
     if (!(file instanceof File) || !file.name) return;
+    setImportSource(null);
+    setImportPreview(null);
+    setImportResult(null);
     const source = { fileName: file.name, csv: await file.text() };
-    setImportSource(source);
     previewImport.mutate(source);
   };
   const scopeMutation = useMutation({

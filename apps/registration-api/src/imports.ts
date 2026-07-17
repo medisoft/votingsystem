@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
 import {
-  MAX_CSV_BYTES,
+  MAX_IMPORT_JSON_BYTES,
+  canonicalUnitNumber,
   errorsToCsv,
   type ImportError,
   parseRegistrationCsv,
@@ -15,6 +16,7 @@ const importBody = z.object({
 });
 const idParams = z.object({ id: z.string().uuid() });
 type ImportDb = PrismaClient | Prisma.TransactionClient;
+export const REGISTRATION_WRITE_LOCK = 2026071705;
 
 async function previewImport(db: ImportDb, csv: string) {
   const parsed = parseRegistrationCsv(csv);
@@ -25,19 +27,19 @@ async function previewImport(db: ImportDb, csv: string) {
       errors: parsed.errors,
       summary: { total: 0, valid: 0, rejected: 0 },
     };
-  const units = parsed.rows.flatMap((row) =>
-    row.data ? [row.data.unitNumber] : [],
+  const unitKeys = parsed.rows.flatMap((row) =>
+    row.data ? [canonicalUnitNumber(row.data.unitNumber)] : [],
   );
+  const existingRecords = unitKeys.length
+    ? await db.$queryRaw<Array<{ unitNumber: string }>>(
+        Prisma.sql`SELECT "unitNumber" FROM "RegistrationRecord" WHERE LOWER("unitNumber") IN (${Prisma.join(unitKeys)})`,
+      )
+    : [];
   const existing = new Set(
-    (
-      await db.registrationRecord.findMany({
-        where: { unitNumber: { in: units } },
-        select: { unitNumber: true },
-      })
-    ).map((record) => record.unitNumber),
+    existingRecords.map((record) => canonicalUnitNumber(record.unitNumber)),
   );
   const rows = parsed.rows.map((row) =>
-    row.data && existing.has(row.data.unitNumber)
+    row.data && existing.has(canonicalUnitNumber(row.data.unitNumber))
       ? {
           ...row,
           data: undefined,
@@ -66,7 +68,7 @@ export function registerImportRoutes(app: FastifyInstance) {
     '/api/v1/admin/registrations/import/preview',
     {
       preHandler: app.requireRegistrationWrite,
-      bodyLimit: MAX_CSV_BYTES + 10_000,
+      bodyLimit: MAX_IMPORT_JSON_BYTES,
     },
     async (request, reply) => {
       const body = importBody.safeParse(request.body);
@@ -81,7 +83,7 @@ export function registerImportRoutes(app: FastifyInstance) {
     '/api/v1/admin/registrations/import',
     {
       preHandler: app.requireRegistrationWrite,
-      bodyLimit: MAX_CSV_BYTES + 10_000,
+      bodyLimit: MAX_IMPORT_JSON_BYTES,
     },
     async (request, reply) => {
       const body = importBody.safeParse(request.body);
@@ -89,7 +91,7 @@ export function registerImportRoutes(app: FastifyInstance) {
         return reply.code(400).send({ code: 'INVALID_IMPORT_REQUEST' });
       const result = await app.prisma.$transaction(async (tx) => {
         await tx.$executeRaw(
-          Prisma.sql`SELECT pg_advisory_xact_lock(2026071705)`,
+          Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
         );
         const fileHash = parseRegistrationCsv(body.data.csv).fileHash;
         const previous = await tx.registrationImport.findUnique({
@@ -158,7 +160,7 @@ export function registerImportRoutes(app: FastifyInstance) {
     '/api/v1/admin/registration-imports/:id/errors.csv',
     {
       preHandler: app.requireRegistrationWrite,
-      bodyLimit: MAX_CSV_BYTES + 10_000,
+      bodyLimit: MAX_IMPORT_JSON_BYTES,
     },
     async (request, reply) => {
       const params = idParams.safeParse(request.params);

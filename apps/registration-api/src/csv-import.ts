@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 export const MAX_CSV_BYTES = 2 * 1024 * 1024;
 export const MAX_CSV_ROWS = 5000;
+// JSON may escape each input byte as a six-character Unicode escape.
+export const MAX_IMPORT_JSON_BYTES = MAX_CSV_BYTES * 6 + 4096;
 export const requiredHeaders = ['unit_number', 'owner_name'] as const;
 export const supportedHeaders = [
   ...requiredHeaders,
@@ -56,25 +58,42 @@ const rowSchema = z.object({
     .refine(
       (value) => /^\d{1,8}(\.\d{1,4})?$/.test(value) && Number(value) > 0,
     ),
-  eligible: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .optional()
-    .default('true')
-    .refine((value) => value === 'true' || value === 'false'),
-  status: z
-    .nativeEnum(RegistrationStatus)
-    .optional()
-    .default(RegistrationStatus.ACTIVE),
+  eligible: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .optional()
+      .default('true')
+      .refine((value) => value === 'true' || value === 'false'),
+  ),
+  status: z.preprocess(
+    blankToUndefined,
+    z
+      .nativeEnum(RegistrationStatus)
+      .optional()
+      .default(RegistrationStatus.ACTIVE),
+  ),
   notes: z.string().trim().max(5000).optional().default(''),
 });
 
-function parseCsvRecords(csv: string): string[][] {
-  const records: string[][] = [];
+function blankToUndefined(value: unknown) {
+  return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
+interface CsvRecord {
+  values: string[];
+  row: number;
+}
+
+function parseCsvRecords(csv: string): CsvRecord[] {
+  const records: CsvRecord[] = [];
   let record: string[] = [];
   let field = '';
   let quoted = false;
+  let line = 1;
+  let recordRow = 1;
   for (let index = 0; index < csv.length; index += 1) {
     const character = csv[index]!;
     if (quoted) {
@@ -90,14 +109,23 @@ function parseCsvRecords(csv: string): string[][] {
     } else if (character === '\n' || character === '\r') {
       if (character === '\r' && csv[index + 1] === '\n') index += 1;
       record.push(field);
-      if (record.some((value) => value.length > 0)) records.push(record);
+      if (record.some((value) => value.length > 0))
+        records.push({ values: record, row: recordRow });
       record = [];
       field = '';
+      line += 1;
+      recordRow = line;
     } else field += character;
+    if (
+      quoted &&
+      (character === '\n' || (character === '\r' && csv[index + 1] !== '\n'))
+    )
+      line += 1;
   }
   if (quoted) throw new Error('UNCLOSED_QUOTE');
   record.push(field);
-  if (record.some((value) => value.length > 0)) records.push(record);
+  if (record.some((value) => value.length > 0))
+    records.push({ values: record, row: recordRow });
   return records;
 }
 
@@ -123,7 +151,7 @@ export function parseRegistrationCsv(csv: string): {
         },
       ],
     };
-  let records: string[][];
+  let records: CsvRecord[];
   try {
     records = parseCsvRecords(csv.replace(/^\uFEFF/, ''));
   } catch {
@@ -148,7 +176,9 @@ export function parseRegistrationCsv(csv: string): {
         { row: 1, field: 'file', code: 'EMPTY_FILE', message: 'CSV is empty.' },
       ],
     };
-  const headers = records[0]!.map((header) => header.trim().toLowerCase());
+  const headers = records[0]!.values.map((header) =>
+    header.trim().toLowerCase(),
+  );
   const fileErrors: ImportError[] = [];
   for (const header of requiredHeaders)
     if (!headers.includes(header))
@@ -195,8 +225,7 @@ export function parseRegistrationCsv(csv: string): {
   const seen = new Set<string>();
   const rows = records
     .slice(1, MAX_CSV_ROWS + 1)
-    .map((values, rowIndex): ImportRow => {
-      const row = rowIndex + 2;
+    .map(({ values, row }): ImportRow => {
       if (values.length !== headers.length)
         return {
           row,
@@ -209,9 +238,11 @@ export function parseRegistrationCsv(csv: string): {
             },
           ],
         };
-      const raw = Object.fromEntries(
+      const raw: Record<string, string | undefined> = Object.fromEntries(
         headers.map((header, index) => [header, values[index] ?? '']),
       );
+      for (const field of ['voting_weight', 'eligible', 'status'])
+        if (blankToUndefined(raw[field]) === undefined) raw[field] = undefined;
       const parsed = rowSchema.safeParse(raw);
       if (!parsed.success)
         return {
@@ -220,10 +251,10 @@ export function parseRegistrationCsv(csv: string): {
             row,
             field: String(issue.path[0] ?? 'row'),
             code: 'INVALID_FIELD',
-            message: issue.message,
+            message: 'Field value is invalid.',
           })),
         };
-      const unitKey = parsed.data.unit_number.toLocaleLowerCase('en');
+      const unitKey = canonicalUnitNumber(parsed.data.unit_number);
       if (seen.has(unitKey))
         return {
           row,
@@ -255,6 +286,10 @@ export function parseRegistrationCsv(csv: string): {
       };
     });
   return { fileHash: hashCsv(csv), rows, errors: [] };
+}
+
+export function canonicalUnitNumber(unitNumber: string) {
+  return unitNumber.toLocaleLowerCase('en');
 }
 
 export function errorsToCsv(errors: ImportError[]) {

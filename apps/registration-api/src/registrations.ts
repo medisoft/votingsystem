@@ -7,6 +7,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
+import { REGISTRATION_WRITE_LOCK } from './imports.js';
 
 const uuid = z.string().uuid();
 const weight = z
@@ -135,18 +136,34 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         return reply
           .code(400)
           .send({ code: 'INVALID_REGISTRATION', issues: parsed.error.issues });
-      if (
-        await app.prisma.registrationRecord.findUnique({
-          where: { unitNumber: parsed.data.unitNumber },
-        })
-      )
-        return reply.code(409).send({ code: 'UNIT_EXISTS' });
-      const record = await app.prisma.registrationRecord.create({
-        data: {
-          ...clean(parsed.data),
-          votingWeight: new Prisma.Decimal(parsed.data.votingWeight),
-        } as Prisma.RegistrationRecordCreateInput,
-      });
+      let record;
+      try {
+        record = await app.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+          );
+          if (
+            await tx.registrationRecord.findUnique({
+              where: { unitNumber: parsed.data.unitNumber },
+            })
+          )
+            return null;
+          return tx.registrationRecord.create({
+            data: {
+              ...clean(parsed.data),
+              votingWeight: new Prisma.Decimal(parsed.data.votingWeight),
+            } as Prisma.RegistrationRecordCreateInput,
+          });
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          return reply.code(409).send({ code: 'UNIT_EXISTS' });
+        throw error;
+      }
+      if (!record) return reply.code(409).send({ code: 'UNIT_EXISTS' });
       await appendAudit(app.prisma, {
         actorType: ActorType.ADMIN,
         actorId: request.admin!.id,
