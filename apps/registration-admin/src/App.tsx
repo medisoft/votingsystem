@@ -578,6 +578,11 @@ function Dashboard({ user }: { user: User }) {
                   type="file"
                   accept=".csv,text/csv"
                   required
+                  onChange={() => {
+                    setImportSource(null);
+                    setImportPreview(null);
+                    setImportResult(null);
+                  }}
                 />
               </label>
               <button disabled={previewImport.isPending}>

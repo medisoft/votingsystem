@@ -96,10 +96,6 @@ class CsvSyntaxError extends Error {
   }
 }
 
-function isPhysicalRecord(record: string[]) {
-  return record.length > 1 || record[0]!.length > 0;
-}
-
 function parseCsvRecords(csv: string): CsvRecord[] {
   const records: CsvRecord[] = [];
   let record: string[] = [];
@@ -107,6 +103,7 @@ function parseCsvRecords(csv: string): CsvRecord[] {
   let quoted = false;
   let line = 1;
   let recordRow = 1;
+  let recordHasContent = false;
   for (let index = 0; index < csv.length; index += 1) {
     const character = csv[index]!;
     if (quoted) {
@@ -115,20 +112,26 @@ function parseCsvRecords(csv: string): CsvRecord[] {
         index += 1;
       } else if (character === '"') quoted = false;
       else field += character;
-    } else if (character === '"' && field.length === 0) quoted = true;
-    else if (character === ',') {
+    } else if (character === '"' && field.length === 0) {
+      quoted = true;
+      recordHasContent = true;
+    } else if (character === ',') {
       record.push(field);
       field = '';
+      recordHasContent = true;
     } else if (character === '\n' || character === '\r') {
       if (character === '\r' && csv[index + 1] === '\n') index += 1;
       record.push(field);
-      if (isPhysicalRecord(record))
-        records.push({ values: record, row: recordRow });
+      if (recordHasContent) records.push({ values: record, row: recordRow });
       record = [];
       field = '';
+      recordHasContent = false;
       line += 1;
       recordRow = line;
-    } else field += character;
+    } else {
+      field += character;
+      recordHasContent = true;
+    }
     if (
       quoted &&
       (character === '\n' || (character === '\r' && csv[index + 1] !== '\n'))
@@ -137,8 +140,7 @@ function parseCsvRecords(csv: string): CsvRecord[] {
   }
   if (quoted) throw new CsvSyntaxError(recordRow);
   record.push(field);
-  if (isPhysicalRecord(record))
-    records.push({ values: record, row: recordRow });
+  if (recordHasContent) records.push({ values: record, row: recordRow });
   return records;
 }
 

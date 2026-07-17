@@ -222,6 +222,7 @@ it('replaces a stale preview after commit revalidation fails', async () => {
 A-1,Owner
 `,
   });
+  const secondFile = new File(['second'], 'second.csv', { type: 'text/csv' });
   const originalFormData = FormData;
   vi.stubGlobal(
     'FormData',
@@ -246,6 +247,16 @@ A-1,Owner
   expect(
     await screen.findByText('Total: 1. Valid: 1. Rejected: 0.'),
   ).toBeInTheDocument();
+  fireEvent.change(fileInput, { target: { files: [secondFile] } });
+  expect(
+    screen.queryByRole('button', { name: 'Commit valid rows' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByText('Total: 1. Valid: 1. Rejected: 0.'),
+  ).not.toBeInTheDocument();
+  fireEvent.change(fileInput, { target: { files: [file] } });
+  fireEvent.submit(fileInput.closest('form')!);
+  await screen.findByText('Total: 1. Valid: 1. Rejected: 0.');
   fireEvent.click(screen.getByRole('button', { name: 'Commit valid rows' }));
   expect(
     await screen.findByText('Total: 1. Valid: 0. Rejected: 1.'),

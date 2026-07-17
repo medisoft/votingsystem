@@ -111,6 +111,21 @@ A-1,"Unclosed owner`,
     );
   });
 
+  it('validates quoted empty rows while skipping physical blank lines', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name
+
+""
+`,
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.row).toBe(3);
+    expect(result.rows[0]?.data).toBeUndefined();
+    expect(result.rows[0]?.errors).toEqual([
+      expect.objectContaining({ field: 'row', code: 'COLUMN_COUNT' }),
+    ]);
+  });
+
   it('allows worst-case JSON encoding overhead around the CSV limit', () => {
     expect(MAX_IMPORT_JSON_BYTES).toBeGreaterThan(MAX_CSV_BYTES * 6);
   });
