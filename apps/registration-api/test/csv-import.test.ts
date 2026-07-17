@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalUnitNumber,
   MAX_CSV_BYTES,
   MAX_IMPORT_JSON_BYTES,
   errorsToCsv,
@@ -53,6 +54,15 @@ A-1,Owner,${rejected}
     );
     expect(result.rows[0]?.errors[0]?.message).toBe('Field value is invalid.');
     expect(errorsToCsv(result.rows[0]!.errors)).not.toContain(rejected);
+  });
+
+  it('normalizes unit identifiers to uppercase', () => {
+    expect(canonicalUnitNumber('a-101')).toBe('A-101');
+    expect(
+      parseRegistrationCsv(`unit_number,owner_name
+a-101,Owner
+`).rows[0]?.data?.unitNumber,
+    ).toBe('A-101');
   });
 
   it('allows worst-case JSON encoding overhead around the CSV limit', () => {

@@ -510,7 +510,7 @@ suite('administrative authentication', () => {
     const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
     await prisma.registrationRecord.create({
       data: {
-        unitNumber: 'Case-Existing-501',
+        unitNumber: 'CASE-EXISTING-501',
         ownerName: 'Existing owner',
         votingWeight: new Prisma.Decimal('1.0000'),
       },
@@ -601,7 +601,7 @@ case-existing-501,Imported owner
           url: `/api/v1/admin/registrations/${record.id}`,
           headers: { cookie },
           payload: {
-            unitNumber: 'PATCH-LOCK-TARGET',
+            unitNumber: 'patch-lock-target',
             version: record.version,
           },
         })
@@ -656,7 +656,7 @@ INVALID-ONLY,
 
     await prisma.registrationRecord.create({
       data: {
-        unitNumber: 'Canonical-Manual-501',
+        unitNumber: 'CANONICAL-MANUAL-501',
         ownerName: 'Canonical owner',
         votingWeight: new Prisma.Decimal('1.0000'),
       },
@@ -673,5 +673,58 @@ INVALID-ONLY,
     });
     expect(duplicate.statusCode).toBe(409);
     expect(duplicate.json().code).toBe('UNIT_EXISTS');
+  });
+  it('rejects canonical duplicate renames and lowercase database writes', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.8',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const rawCookie = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie).split(
+      ';',
+    )[0]!;
+    const existing = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'RENAME-DUPLICATE-A',
+        ownerName: 'Existing canonical owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const renamed = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'RENAME-DUPLICATE-B',
+        ownerName: 'Rename source owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const duplicate = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/registrations/${renamed.id}`,
+      headers: { cookie },
+      payload: {
+        unitNumber: existing.unitNumber.toLowerCase(),
+        version: renamed.version,
+      },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json().code).toBe('UNIT_EXISTS');
+    expect(
+      (
+        await prisma.registrationRecord.findUniqueOrThrow({
+          where: { id: renamed.id },
+        })
+      ).unitNumber,
+    ).toBe('RENAME-DUPLICATE-B');
+    await expect(
+      prisma.registrationRecord.create({
+        data: {
+          unitNumber: 'database-lowercase',
+          ownerName: 'Constraint test',
+          votingWeight: new Prisma.Decimal('1.0000'),
+        },
+      }),
+    ).rejects.toThrow();
   });
 });

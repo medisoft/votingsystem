@@ -1,6 +1,7 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -33,21 +34,21 @@ enum VotingScopeStatus {
 }
 
 model VotingScope {
-  id                    String            @id @default(uuid()) @db.Uuid
-  name                  String
-  description           String?
-  status                VotingScopeStatus @default(DRAFT)
-  startsAt              DateTime
-  endsAt                DateTime
-  activationStartsAt    DateTime
-  activationEndsAt      DateTime
-  credentialExpiresAt   DateTime
-  votingWeightsEnabled  Boolean           @default(false)
-  issuerKeyVersion      String
-  version               Int               @default(1)
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  eligibilities         ScopeEligibility[]
+  id                   String             @id @default(uuid()) @db.Uuid
+  name                 String
+  description          String?
+  status               VotingScopeStatus  @default(DRAFT)
+  startsAt             DateTime
+  endsAt               DateTime
+  activationStartsAt   DateTime
+  activationEndsAt     DateTime
+  credentialExpiresAt  DateTime
+  votingWeightsEnabled Boolean            @default(false)
+  issuerKeyVersion     String
+  version              Int                @default(1)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  eligibilities        ScopeEligibility[]
 
   @@index([status])
   @@index([startsAt, endsAt])
@@ -60,6 +61,7 @@ enum RegistrationStatus {
 
 model RegistrationRecord {
   id                 String             @id @default(uuid()) @db.Uuid
+  /// Stored uppercase; enforced by a database CHECK constraint.
   unitNumber         String             @unique
   ownerName          String
   representativeName String?
@@ -111,14 +113,14 @@ model AdminUser {
 }
 
 model AdminSession {
-  id         String    @id @default(uuid()) @db.Uuid
-  tokenHash  String    @unique
-  adminId    String    @db.Uuid
-  admin      AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  rotatedAt  DateTime?
-  revokedAt  DateTime?
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique
+  adminId   String    @db.Uuid
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  rotatedAt DateTime?
+  revokedAt DateTime?
 
   @@index([adminId, expiresAt])
 }

@@ -1023,6 +1023,7 @@ Implementation contract:
 * Files are limited to 2 MiB and 5,000 data rows.
 * Supported headers are `unit_number`, `owner_name`, `representative_name`, `email`, `phone`, `voting_weight`, `eligible`, `status`, and `notes`.
 * `unit_number` and `owner_name` are required; optional values receive documented defaults.
+* Unit identifiers are normalized to uppercase, and the database enforces uppercase unique storage.
 * Imports are serialized, existing units are rejected, and later duplicate units in one file are rejected deterministically.
 * A SHA-256 content hash prevents the same file content from being committed twice, even under a different file name.
 * Error reports contain row, field, code, and localized-displayable error type without copying source field values.

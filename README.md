@@ -78,7 +78,7 @@ Run the complete database integration workflow from the repository root with `np
 
 System administrators and registration operators can upload a CSV, preview validation results, and explicitly commit only valid rows. Auditors cannot preview, commit, or download import error reports. Each commit stores a SHA-256 file hash, counts, actor, timestamp, row-level errors, and a hash-chained audit event. Re-uploading identical file content returns a conflict instead of creating duplicates.
 
-Required headers are `unit_number` and `owner_name`. Optional headers are `representative_name`, `email`, `phone`, `voting_weight`, `eligible`, `status`, and `notes`. Voting weight defaults to `1.0000`, eligibility to `true`, and status to `ACTIVE`. Files are limited to 2 MiB and 5,000 data rows. Quoted commas, escaped quotes, and quoted line breaks are supported.
+Required headers are `unit_number` and `owner_name`. Unit identifiers are normalized to uppercase and stored uniquely. Optional headers are `representative_name`, `email`, `phone`, `voting_weight`, `eligible`, `status`, and `notes`. Voting weight defaults to `1.0000`, eligibility to `true`, and status to `ACTIVE`. Files are limited to 2 MiB and 5,000 data rows. Quoted commas, escaped quotes, and quoted line breaks are supported.
 
 Invalid rows show their exact CSV row and field. Valid rows can still be committed, and the resulting error report can be downloaded as CSV without including the rejected source values. Existing units and later duplicate units in the same file are rejected; the first valid occurrence wins.
 

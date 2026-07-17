@@ -273,7 +273,7 @@ export function parseRegistrationCsv(csv: string): {
         row,
         errors: [],
         data: {
-          unitNumber: parsed.data.unit_number,
+          unitNumber: canonicalUnitNumber(parsed.data.unit_number),
           ownerName: parsed.data.owner_name,
           representativeName: parsed.data.representative_name || null,
           email: parsed.data.email || null,
@@ -289,7 +289,7 @@ export function parseRegistrationCsv(csv: string): {
 }
 
 export function canonicalUnitNumber(unitNumber: string) {
-  return unitNumber.toLocaleLowerCase('en');
+  return unitNumber.toLocaleUpperCase('en');
 }
 
 export function errorsToCsv(errors: ImportError[]) {

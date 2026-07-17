@@ -16,7 +16,7 @@ const weight = z
   .transform(String)
   .refine((v) => /^\d{1,8}(\.\d{1,4})?$/.test(v) && Number(v) > 0);
 const fields = z.object({
-  unitNumber: z.string().trim().min(1).max(100),
+  unitNumber: z.string().trim().min(1).max(100).transform(canonicalUnitNumber),
   ownerName: z.string().trim().min(1).max(300),
   representativeName: z.string().trim().max(300).nullable().optional(),
   email: z.string().email().max(254).nullable().optional(),
@@ -144,7 +144,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
             Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
           );
           const existing = await tx.$queryRaw<Array<{ id: string }>>(
-            Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE LOWER("unitNumber") = ${canonicalUnitNumber(parsed.data.unitNumber)} LIMIT 1`,
+            Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE UPPER("unitNumber") = ${parsed.data.unitNumber} LIMIT 1`,
           );
           if (existing.length) return null;
           return tx.registrationRecord.create({
@@ -190,10 +190,15 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
       let result;
       try {
         result = await app.prisma.$transaction(async (tx) => {
-          if (raw.unitNumber)
+          if (raw.unitNumber) {
             await tx.$executeRaw(
               Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
             );
+            const existing = await tx.$queryRaw<Array<{ id: string }>>(
+              Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE UPPER("unitNumber") = ${raw.unitNumber} AND "id" <> ${p.data.id}::uuid LIMIT 1`,
+            );
+            if (existing.length) return null;
+          }
           return tx.registrationRecord.updateMany({
             where: { id: p.data.id, version, deletedAt: null },
             data: {
@@ -210,6 +215,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           return reply.code(409).send({ code: 'UNIT_EXISTS' });
         throw error;
       }
+      if (!result) return reply.code(409).send({ code: 'UNIT_EXISTS' });
       if (!result.count)
         return reply.code(409).send({ code: 'VERSION_CONFLICT_OR_NOT_FOUND' });
       const record = await app.prisma.registrationRecord.findUniqueOrThrow({

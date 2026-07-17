@@ -32,7 +32,7 @@ async function previewImport(db: ImportDb, csv: string) {
   );
   const existingRecords = unitKeys.length
     ? await db.$queryRaw<Array<{ unitNumber: string }>>(
-        Prisma.sql`SELECT "unitNumber" FROM "RegistrationRecord" WHERE LOWER("unitNumber") IN (${Prisma.join(unitKeys)})`,
+        Prisma.sql`SELECT "unitNumber" FROM "RegistrationRecord" WHERE UPPER("unitNumber") IN (${Prisma.join(unitKeys)})`,
       )
     : [];
   const existing = new Set(
