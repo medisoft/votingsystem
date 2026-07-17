@@ -75,6 +75,15 @@ interface CsvImportResult {
   };
   errorReportUrl: string | null;
 }
+interface ApiErrorBody {
+  code?: string;
+  preview?: CsvImportPreview;
+}
+class ApiError extends Error {
+  constructor(readonly body: ApiErrorBody) {
+    super(body.code ?? 'REQUEST_FAILED');
+  }
+}
 const nextStatus: Partial<Record<ScopeStatus, ScopeStatus>> = {
   DRAFT: 'REGISTRATION_OPEN',
   REGISTRATION_OPEN: 'ACTIVATION_OPEN',
@@ -140,12 +149,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   });
   if (!response.ok)
-    throw new Error(
-      (
-        (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as {
-          code?: string;
-        }
-      ).code ?? 'REQUEST_FAILED',
+    throw new ApiError(
+      (await response.json().catch(() => ({
+        code: 'REQUEST_FAILED',
+      }))) as ApiErrorBody,
     );
   return response.status === 204
     ? (undefined as T)
@@ -288,12 +295,17 @@ function Dashboard({ user }: { user: User }) {
       setMessage(t('importCommitted'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
-    onError: (error) =>
+    onError: (error) => {
+      if (error instanceof ApiError && error.body.preview) {
+        setImportPreview(error.body.preview);
+        setImportResult(null);
+      }
       setMessage(
         error.message === 'IMPORT_ALREADY_COMMITTED'
           ? t('importAlreadyCommitted')
           : t('importCommitFailed'),
-      ),
+      );
+    },
   });
   const previewCsv = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

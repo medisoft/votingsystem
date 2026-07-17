@@ -65,6 +65,52 @@ a-101,Owner
     ).toBe('A-101');
   });
 
+  it('trims padded emails and defaults whitespace-only emails', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,email
+A-1,Owner,~owner@example.com~
+A-2,Other,~~~
+`.replaceAll('~', ' '),
+    );
+    expect(result.rows[0]?.data?.email).toBe('owner@example.com');
+    expect(result.rows[1]?.data?.email).toBeNull();
+  });
+
+  it('reports malformed headers on their physical row', () => {
+    const result = parseRegistrationCsv(
+      `
+
+unit_number,unexpected
+A-1,value
+`,
+    );
+    expect(result.errors).not.toHaveLength(0);
+    expect(result.errors.every((error) => error.row === 3)).toBe(true);
+  });
+
+  it('reports an unclosed quote at the record starting row', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name
+A-1,"Unclosed owner`,
+    );
+    expect(result.errors[0]).toMatchObject({ row: 2, code: 'INVALID_CSV' });
+  });
+
+  it('validates delimiter-only rows while skipping physical blank lines', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name
+
+,
+`,
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.row).toBe(3);
+    expect(result.rows[0]?.data).toBeUndefined();
+    expect(result.rows[0]?.errors.map((error) => error.field)).toEqual(
+      expect.arrayContaining(['unit_number', 'owner_name']),
+    );
+  });
+
   it('allows worst-case JSON encoding overhead around the CSV limit', () => {
     expect(MAX_IMPORT_JSON_BYTES).toBeGreaterThan(MAX_CSV_BYTES * 6);
   });

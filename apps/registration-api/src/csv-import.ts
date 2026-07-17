@@ -45,10 +45,13 @@ const rowSchema = z.object({
   unit_number: z.string().trim().min(1).max(100),
   owner_name: z.string().trim().min(1).max(300),
   representative_name: z.string().trim().max(300).optional().default(''),
-  email: z
-    .union([z.literal(''), z.string().email().max(254)])
-    .optional()
-    .default(''),
+  email: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() : value),
+    z
+      .union([z.literal(''), z.string().email().max(254)])
+      .optional()
+      .default(''),
+  ),
   phone: z.string().trim().max(50).optional().default(''),
   voting_weight: z
     .string()
@@ -87,6 +90,16 @@ interface CsvRecord {
   row: number;
 }
 
+class CsvSyntaxError extends Error {
+  constructor(readonly row: number) {
+    super('UNCLOSED_QUOTE');
+  }
+}
+
+function isPhysicalRecord(record: string[]) {
+  return record.length > 1 || record[0]!.length > 0;
+}
+
 function parseCsvRecords(csv: string): CsvRecord[] {
   const records: CsvRecord[] = [];
   let record: string[] = [];
@@ -109,7 +122,7 @@ function parseCsvRecords(csv: string): CsvRecord[] {
     } else if (character === '\n' || character === '\r') {
       if (character === '\r' && csv[index + 1] === '\n') index += 1;
       record.push(field);
-      if (record.some((value) => value.length > 0))
+      if (isPhysicalRecord(record))
         records.push({ values: record, row: recordRow });
       record = [];
       field = '';
@@ -122,9 +135,9 @@ function parseCsvRecords(csv: string): CsvRecord[] {
     )
       line += 1;
   }
-  if (quoted) throw new Error('UNCLOSED_QUOTE');
+  if (quoted) throw new CsvSyntaxError(recordRow);
   record.push(field);
-  if (record.some((value) => value.length > 0))
+  if (isPhysicalRecord(record))
     records.push({ values: record, row: recordRow });
   return records;
 }
@@ -154,13 +167,13 @@ export function parseRegistrationCsv(csv: string): {
   let records: CsvRecord[];
   try {
     records = parseCsvRecords(csv.replace(/^\uFEFF/, ''));
-  } catch {
+  } catch (error) {
     return {
       fileHash: hashCsv(csv),
       rows: [],
       errors: [
         {
-          row: 1,
+          row: error instanceof CsvSyntaxError ? error.row : 1,
           field: 'file',
           code: 'INVALID_CSV',
           message: 'CSV contains an unclosed quoted field.',
@@ -179,11 +192,12 @@ export function parseRegistrationCsv(csv: string): {
   const headers = records[0]!.values.map((header) =>
     header.trim().toLowerCase(),
   );
+  const headerRow = records[0]!.row;
   const fileErrors: ImportError[] = [];
   for (const header of requiredHeaders)
     if (!headers.includes(header))
       fileErrors.push({
-        row: 1,
+        row: headerRow,
         field: header,
         code: 'MISSING_HEADER',
         message: `Required header ${header} is missing.`,
@@ -191,7 +205,7 @@ export function parseRegistrationCsv(csv: string): {
   headers.forEach((header, index) => {
     if (!header)
       fileErrors.push({
-        row: 1,
+        row: headerRow,
         field: `column_${index + 1}`,
         code: 'EMPTY_HEADER',
         message: 'Header cannot be empty.',
@@ -200,14 +214,14 @@ export function parseRegistrationCsv(csv: string): {
       !supportedHeaders.includes(header as (typeof supportedHeaders)[number])
     )
       fileErrors.push({
-        row: 1,
+        row: headerRow,
         field: header,
         code: 'UNKNOWN_HEADER',
         message: `Header ${header} is not supported.`,
       });
     else if (headers.indexOf(header) !== index)
       fileErrors.push({
-        row: 1,
+        row: headerRow,
         field: header,
         code: 'DUPLICATE_HEADER',
         message: `Header ${header} appears more than once.`,
@@ -215,7 +229,7 @@ export function parseRegistrationCsv(csv: string): {
   });
   if (records.length - 1 > MAX_CSV_ROWS)
     fileErrors.push({
-      row: 1,
+      row: headerRow,
       field: 'file',
       code: 'TOO_MANY_ROWS',
       message: `CSV may contain at most ${MAX_CSV_ROWS} data rows.`,
