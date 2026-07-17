@@ -64,7 +64,8 @@ function useI18n() {
   const t = useMemo(() => createTranslator(locale), [locale]);
   useEffect(() => {
     document.documentElement.lang = locale;
-  }, [locale]);
+    document.title = t('pageTitle');
+  }, [locale, t]);
   return { locale, t };
 }
 

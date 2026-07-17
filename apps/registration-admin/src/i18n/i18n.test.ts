@@ -10,10 +10,16 @@ describe('internationalization', () => {
   it('falls back to English when no supported language is detected', () => {
     expect(detectLocale(['fr-FR', 'de-DE'])).toBe('en');
     expect(createTranslator('en')('loginTitle')).toBe('Sign in');
+    expect(createTranslator('en')('pageTitle')).toBe(
+      'Voting system — Registration',
+    );
   });
 
   it('returns Spanish messages when Spanish is selected', () => {
     expect(createTranslator('es')('loginTitle')).toBe('Iniciar sesión');
+    expect(createTranslator('es')('pageTitle')).toBe(
+      'Sistema de votación — Registro',
+    );
   });
 
   it('interpolates values in localized messages', () => {

@@ -1,4 +1,10 @@
 export const messages = {
+  pageTitle: {
+    description:
+      'Browser tab and assistive-technology title for the registration administration application.',
+    en: 'Voting system — Registration',
+    es: 'Sistema de votación — Registro',
+  },
   admin: {
     description: 'Eyebrow identifying the administrative application area.',
     en: 'Administration',
