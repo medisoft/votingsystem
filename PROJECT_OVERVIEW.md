@@ -57,6 +57,19 @@ No hidden algorithms.
 
 ---
 
+## Reuse Proven Components
+
+Use mature, actively maintained libraries for established formats, protocols,
+security mechanisms, and general infrastructure whenever they satisfy the
+project's requirements. Check compatibility, licensing, maintenance status,
+security posture, and correctness before adoption.
+
+Do not spend project time recreating well-supported general-purpose components.
+A custom implementation requires a documented reason why available libraries
+are unsuitable and focused tests for the behavior that must be maintained.
+
+---
+
 ## Privacy by Design
 
 The platform separates identity from voting.

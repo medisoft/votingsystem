@@ -8,6 +8,14 @@ Stage 1 foundation for the Registration and Credential Issuance Service: Fastify
 - npm 11+
 - Docker with Docker Compose
 
+## Engineering policy
+
+Prefer mature, actively maintained libraries over custom implementations when
+they meet the requirement. Evaluate compatibility, licensing, maintenance, and
+security before adoption. Custom implementations of established formats,
+protocols, cryptographic primitives, or general-purpose infrastructure require
+a documented technical justification and focused tests.
+
 ## Start locally
 
 After selecting the version in .nvmrc, install dependencies and generate the Prisma client:

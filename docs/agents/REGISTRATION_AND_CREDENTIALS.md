@@ -54,6 +54,19 @@ Use the following stack unless there is a strong technical reason to change it:
 
 Do not implement the voter-facing voting interface in this project.
 
+## Reuse of Existing Libraries
+
+Prefer an existing, well-supported library over a custom implementation when it
+already solves the required problem. Before adopting it, verify that it is
+actively maintained, compatible with the project stack, appropriately licensed,
+and suitable for the security and correctness requirements.
+
+Custom implementations of established infrastructure or formats—such as
+parsers, cryptographic primitives, protocol clients, and generic utilities—must
+be used only when no suitable maintained library exists or a documented project
+requirement makes the library unsuitable. Record that justification and add
+tests for the behavior the project must maintain.
+
 ---
 
 # 3. Security Model
