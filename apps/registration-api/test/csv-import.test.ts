@@ -98,6 +98,16 @@ A-1,value
     expect(result.errors.every((error) => error.row === 3)).toBe(true);
   });
 
+  it('rejects text after a closing quote at the record starting row', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name
+"A-1"x,Owner
+`,
+    );
+    expect(result.errors[0]).toMatchObject({ row: 2, code: 'INVALID_CSV' });
+    expect(result.rows).toEqual([]);
+  });
+
   it('reports an unclosed quote at the record starting row', () => {
     const result = parseRegistrationCsv(
       `unit_number,owner_name

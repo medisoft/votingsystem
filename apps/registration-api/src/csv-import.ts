@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RegistrationStatus } from '@prisma/client';
+import { parse } from 'csv-parse/sync';
 import { z } from 'zod';
 
 export const MAX_CSV_BYTES = 2 * 1024 * 1024;
@@ -90,58 +91,56 @@ interface CsvRecord {
   row: number;
 }
 
-class CsvSyntaxError extends Error {
-  constructor(readonly row: number) {
-    super('UNCLOSED_QUOTE');
-  }
+function countLineBreaks(value: string) {
+  return value.match(/\r\n|\r|\n/g)?.length ?? 0;
 }
 
 function parseCsvRecords(csv: string): CsvRecord[] {
-  const records: CsvRecord[] = [];
-  let record: string[] = [];
-  let field = '';
-  let quoted = false;
-  let line = 1;
-  let recordRow = 1;
-  let recordHasContent = false;
-  for (let index = 0; index < csv.length; index += 1) {
-    const character = csv[index]!;
-    if (quoted) {
-      if (character === '"' && csv[index + 1] === '"') {
-        field += '"';
-        index += 1;
-      } else if (character === '"') quoted = false;
-      else field += character;
-    } else if (character === '"' && field.length === 0) {
-      quoted = true;
-      recordHasContent = true;
-    } else if (character === ',') {
-      record.push(field);
-      field = '';
-      recordHasContent = true;
-    } else if (character === '\n' || character === '\r') {
-      if (character === '\r' && csv[index + 1] === '\n') index += 1;
-      record.push(field);
-      if (recordHasContent) records.push({ values: record, row: recordRow });
-      record = [];
-      field = '';
-      recordHasContent = false;
-      line += 1;
-      recordRow = line;
-    } else {
-      field += character;
-      recordHasContent = true;
-    }
-    if (
-      quoted &&
-      (character === '\n' || (character === '\r' && csv[index + 1] !== '\n'))
-    )
-      line += 1;
-  }
-  if (quoted) throw new CsvSyntaxError(recordRow);
-  record.push(field);
-  if (recordHasContent) records.push({ values: record, row: recordRow });
-  return records;
+  const parsed = parse(csv, {
+    bom: true,
+    info: true,
+    raw: true,
+    relax_column_count: true,
+    relax_quotes: false,
+    rtrim: true,
+    skip_empty_lines: true,
+  }) as unknown as Array<{
+    record: string[];
+    raw: string;
+    info: { lines: number };
+  }>;
+  let nextRow = 1;
+  return parsed.map(({ record, raw }) => {
+    const leadingEmptyLines = raw.match(/^(?:(?:\r\n|\r|\n))+/);
+    const row = nextRow + countLineBreaks(leadingEmptyLines?.[0] ?? '');
+    nextRow += countLineBreaks(raw);
+    return { values: record, row };
+  });
+}
+
+function csvErrorRow(error: unknown) {
+  if (
+    typeof error !== 'object' ||
+    error === null ||
+    !('lines' in error) ||
+    typeof error.lines !== 'number'
+  )
+    return 1;
+  const raw = 'raw' in error && typeof error.raw === 'string' ? error.raw : '';
+  const endsWithLineBreak = raw.endsWith('\n') || raw.endsWith('\r');
+  return Math.max(
+    1,
+    error.lines - countLineBreaks(raw) + (endsWithLineBreak ? 1 : 0),
+  );
+}
+
+function csvErrorMessage(error: unknown) {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'CSV_QUOTE_NOT_CLOSED'
+    ? 'CSV contains an unclosed quoted field.'
+    : 'CSV syntax is invalid.';
 }
 
 export function hashCsv(csv: string) {
@@ -168,17 +167,17 @@ export function parseRegistrationCsv(csv: string): {
     };
   let records: CsvRecord[];
   try {
-    records = parseCsvRecords(csv.replace(/^\uFEFF/, ''));
+    records = parseCsvRecords(csv);
   } catch (error) {
     return {
       fileHash: hashCsv(csv),
       rows: [],
       errors: [
         {
-          row: error instanceof CsvSyntaxError ? error.row : 1,
+          row: csvErrorRow(error),
           field: 'file',
           code: 'INVALID_CSV',
-          message: 'CSV contains an unclosed quoted field.',
+          message: csvErrorMessage(error),
         },
       ],
     };
