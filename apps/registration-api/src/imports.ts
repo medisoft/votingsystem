@@ -12,7 +12,7 @@ import {
 
 const importBody = z.object({
   fileName: z.string().trim().min(1).max(255),
-  csv: z.string().min(1),
+  csv: z.string(),
 });
 const idParams = z.object({ id: z.string().uuid() });
 type ImportDb = PrismaClient | Prisma.TransactionClient;
@@ -99,7 +99,8 @@ export function registerImportRoutes(app: FastifyInstance) {
         });
         if (previous) return { previous } as const;
         const preview = await previewImport(tx, body.data.csv);
-        if (preview.errors.length) return { invalid: preview } as const;
+        if (preview.errors.length || preview.summary.valid === 0)
+          return { invalid: preview } as const;
         const validRows = preview.rows.flatMap((row) =>
           row.data ? [row.data] : [],
         );

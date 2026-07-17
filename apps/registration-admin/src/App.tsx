@@ -453,6 +453,7 @@ function Dashboard({ user }: { user: User }) {
             {t('signOut')}
           </button>
         </header>
+        {message && <p role="status">{message}</p>}
         <h2>{t('voterRecords')}</h2>
         {user.role === 'AUDITOR' ? (
           <p>{t('auditorNotice')}</p>
@@ -834,7 +835,6 @@ function Dashboard({ user }: { user: User }) {
                   <option value="SYSTEM_ADMIN">{t('roleSystemAdmin')}</option>
                 </select>
               </label>
-              {message && <p role="status">{message}</p>}
               <button disabled={create.isPending}>{t('createUser')}</button>
             </form>
           </>

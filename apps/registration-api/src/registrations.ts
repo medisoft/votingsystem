@@ -7,6 +7,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
+import { canonicalUnitNumber } from './csv-import.js';
 import { REGISTRATION_WRITE_LOCK } from './imports.js';
 
 const uuid = z.string().uuid();
@@ -142,12 +143,10 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           await tx.$executeRaw(
             Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
           );
-          if (
-            await tx.registrationRecord.findUnique({
-              where: { unitNumber: parsed.data.unitNumber },
-            })
-          )
-            return null;
+          const existing = await tx.$queryRaw<Array<{ id: string }>>(
+            Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE LOWER("unitNumber") = ${canonicalUnitNumber(parsed.data.unitNumber)} LIMIT 1`,
+          );
+          if (existing.length) return null;
           return tx.registrationRecord.create({
             data: {
               ...clean(parsed.data),

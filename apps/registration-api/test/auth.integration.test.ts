@@ -619,4 +619,59 @@ case-existing-501,Imported owner
       }),
     ).not.toBeNull();
   });
+  it('returns structured empty and zero-valid import errors and rejects canonical manual duplicates', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.7',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const rawCookie = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie).split(
+      ';',
+    )[0]!;
+    const emptyPreview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import/preview',
+      headers: { cookie },
+      payload: { fileName: 'empty.csv', csv: '' },
+    });
+    expect(emptyPreview.statusCode).toBe(200);
+    expect(emptyPreview.json().preview.errors[0].code).toBe('EMPTY_FILE');
+
+    const invalidCsv = `unit_number,owner_name
+INVALID-ONLY,
+`;
+    const importsBefore = await prisma.registrationImport.count();
+    const invalidCommit = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import',
+      headers: { cookie },
+      payload: { fileName: 'invalid-only.csv', csv: invalidCsv },
+    });
+    expect(invalidCommit.statusCode).toBe(400);
+    expect(invalidCommit.json().code).toBe('INVALID_CSV');
+    expect(invalidCommit.json().preview.summary.valid).toBe(0);
+    expect(await prisma.registrationImport.count()).toBe(importsBefore);
+
+    await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'Canonical-Manual-501',
+        ownerName: 'Canonical owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations',
+      headers: { cookie },
+      payload: {
+        unitNumber: 'canonical-manual-501',
+        ownerName: 'Duplicate owner',
+        votingWeight: '1.0000',
+      },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json().code).toBe('UNIT_EXISTS');
+  });
 });
