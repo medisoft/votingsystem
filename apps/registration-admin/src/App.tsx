@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createTranslator, detectLocale } from './i18n';
 
 // Empty by default so browsers use the same hostname that served the UI.
@@ -233,6 +233,7 @@ function Dashboard({ user }: { user: User }) {
   const [importResult, setImportResult] = useState<CsvImportResult | null>(
     null,
   );
+  const importSelection = useRef(0);
   const users = useQuery({
     queryKey: ['users'],
     queryFn: () => api<{ users: User[] }>('/api/v1/admin/users'),
@@ -272,17 +273,26 @@ function Dashboard({ user }: { user: User }) {
       setMessage(t('recordSaveFailed', { error: error.message })),
   });
   const previewImport = useMutation({
-    mutationFn: (source: { fileName: string; csv: string }) =>
+    mutationFn: ({
+      source,
+    }: {
+      source: { fileName: string; csv: string };
+      selection: number;
+    }) =>
       api<{ preview: CsvImportPreview }>(
         '/api/v1/admin/registrations/import/preview',
         { method: 'POST', body: JSON.stringify(source) },
       ),
-    onSuccess: ({ preview }, source) => {
+    onSuccess: ({ preview }, { source, selection }) => {
+      if (selection !== importSelection.current) return;
       setImportSource(source);
       setImportPreview(preview);
       setImportResult(null);
     },
-    onError: () => setMessage(t('importPreviewFailed')),
+    onError: (_error, { selection }) => {
+      if (selection === importSelection.current)
+        setMessage(t('importPreviewFailed'));
+    },
   });
   const commitImport = useMutation({
     mutationFn: (source: { fileName: string; csv: string }) =>
@@ -315,8 +325,10 @@ function Dashboard({ user }: { user: User }) {
     setImportSource(null);
     setImportPreview(null);
     setImportResult(null);
+    const selection = importSelection.current;
     const source = { fileName: file.name, csv: await file.text() };
-    previewImport.mutate(source);
+    if (selection !== importSelection.current) return;
+    previewImport.mutate({ source, selection });
   };
   const scopeMutation = useMutation({
     mutationFn: ({
@@ -579,6 +591,7 @@ function Dashboard({ user }: { user: User }) {
                   accept=".csv,text/csv"
                   required
                   onChange={() => {
+                    importSelection.current += 1;
                     setImportSource(null);
                     setImportPreview(null);
                     setImportResult(null);

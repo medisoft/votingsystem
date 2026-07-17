@@ -35,6 +35,16 @@ A-1,Owner,,,
     });
   });
 
+  it('trims padded status cells', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,status
+A-1,Owner,~ACTIVE~
+`.replaceAll('~', ' '),
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.rows[0]?.data?.status).toBe('ACTIVE');
+  });
+
   it('preserves physical row numbers after blank lines', () => {
     const result = parseRegistrationCsv(
       `unit_number,owner_name,email

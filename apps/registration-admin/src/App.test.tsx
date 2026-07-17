@@ -2,6 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { App } from './App';
+
+type MockResponse = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+};
 it('shows login when there is no session', async () => {
   vi.stubGlobal(
     'fetch',
@@ -176,6 +182,8 @@ it('replaces a stale preview after commit revalidation fails', async () => {
       },
     ],
   };
+  let previewCalls = 0;
+  let resolveFirstPreview!: (response: MockResponse) => void;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -193,12 +201,18 @@ it('replaces a stale preview after commit revalidation fails', async () => {
             },
           }),
         };
-      if (path.endsWith('/api/v1/admin/registrations/import/preview'))
+      if (path.endsWith('/api/v1/admin/registrations/import/preview')) {
+        previewCalls += 1;
+        if (previewCalls === 1)
+          return new Promise<MockResponse>((resolve) => {
+            resolveFirstPreview = resolve;
+          });
         return {
           ok: true,
           status: 200,
           json: async () => ({ preview: validPreview }),
         };
+      }
       if (
         path.endsWith('/api/v1/admin/registrations/import') &&
         init?.method === 'POST'
@@ -244,10 +258,14 @@ A-1,Owner
   const fileInput = await screen.findByLabelText('CSV file');
   fireEvent.change(fileInput, { target: { files: [file] } });
   fireEvent.submit(fileInput.closest('form')!);
-  expect(
-    await screen.findByText('Total: 1. Valid: 1. Rejected: 0.'),
-  ).toBeInTheDocument();
+  await waitFor(() => expect(resolveFirstPreview).toBeTypeOf('function'));
   fireEvent.change(fileInput, { target: { files: [secondFile] } });
+  resolveFirstPreview({
+    ok: true,
+    status: 200,
+    json: async () => ({ preview: validPreview }),
+  });
+  await screen.findByRole('button', { name: 'Preview import' });
   expect(
     screen.queryByRole('button', { name: 'Commit valid rows' }),
   ).not.toBeInTheDocument();

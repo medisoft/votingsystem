@@ -72,7 +72,7 @@ const rowSchema = z.object({
       .refine((value) => value === 'true' || value === 'false'),
   ),
   status: z.preprocess(
-    blankToUndefined,
+    (value) => (typeof value === 'string' ? value.trim() || undefined : value),
     z
       .nativeEnum(RegistrationStatus)
       .optional()
