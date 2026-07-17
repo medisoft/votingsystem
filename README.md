@@ -28,7 +28,7 @@ Create or reset the initial system administrator after the stack is running:
 
 The seed is idempotent for the supplied email. It hashes the password with Argon2id and never prints it.
 
-Database integration tests delete their target data and run only when ALLOW_DATABASE_RESET=true. Never enable that flag against a development or production database.
+Database integration tests run only against the isolated `registration_test` database. Run `npm run test:integration`; it starts an ephemeral PostgreSQL test service on host port `15433`, applies migrations, enables reset permission, and runs the API integration suite. The suite also refuses to reset any database not named `registration_test`.
 
 For host-based development, copy each app's .env.example to .env, run npm run dev:infra, and then npm run dev.
 
@@ -62,11 +62,17 @@ Administrators and registration operators can create, search, update, and assign
 
 ## Stage 4.1 internationalization
 
-The administrative interface supports English and Spanish. It checks the browser's ordered language preferences, selects Spanish when Spanish is present, and otherwise defaults to English. The selected locale also controls document language, dates, role names, and voting-scope status labels.
+The administrative interface supports English and Spanish. It checks the browser's ordered language preferences, selects the first supported language, and defaults to English when none is supported. The selected locale also controls document language, dates, role names, and voting-scope status labels.
 
 User-visible text is maintained in `apps/registration-admin/src/i18n/messages.ts`. Every message contains an English description of its purpose plus its English and Spanish text, so translators can update the catalog with a simple file edit. Source identifiers, API error codes, and developer-facing documentation remain in English.
 
 Known limitation: users cannot override the detected language from inside the interface yet; a persistent language selector can be added in a later stage.
+
+## Stage 4.2 test database isolation
+
+Development data uses `registration` on host port `15432`. Destructive integration tests use a separate ephemeral `registration_test` PostgreSQL service on port `15433`. The test runner requires both `ALLOW_DATABASE_RESET=true` and the exact database name `registration_test`; either safeguard prevents a reset when misconfigured.
+
+Run the complete database integration workflow from the repository root with `npm run test:integration`. The ordinary `npm test` command keeps database integration tests skipped.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.

@@ -4,8 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 import { prisma } from '../src/plugins/database.js';
+import { assertSafeTestDatabase } from './database-safety.js';
 
 const enabled = process.env.ALLOW_DATABASE_RESET === 'true';
+if (enabled) assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
 const config: AppConfig = {
   NODE_ENV: 'test',
   HOST: '127.0.0.1',

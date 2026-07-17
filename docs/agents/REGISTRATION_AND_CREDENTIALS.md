@@ -975,6 +975,26 @@ Acceptance criteria:
 
 ---
 
+## Stage 4.2 — Test Database Isolation
+
+Implement:
+
+* A dedicated `registration_test` database separate from development data.
+* An ephemeral PostgreSQL test service with its own host port.
+* A single command that starts the test service, applies migrations, and runs database integration tests.
+* A reset guard requiring both explicit reset permission and the exact test database name.
+* Automated tests for allowed, development, missing, and malformed database URLs.
+* Documentation that clearly distinguishes development and test database ports.
+
+Acceptance criteria:
+
+* Database integration tests cannot reset the normal `registration` database.
+* `npm run test:integration` provisions and tests only `registration_test`.
+* Development administrators, scopes, registrations, and audit events survive integration-test runs.
+* Ordinary unit-test runs do not require PostgreSQL or destructive reset permission.
+
+---
+
 ## Stage 5 — CSV Import
 
 Implement:
