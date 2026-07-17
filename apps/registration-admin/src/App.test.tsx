@@ -67,6 +67,9 @@ it('does not send a JSON content type for bodyless logout', async () => {
       <App />
     </QueryClientProvider>,
   );
+  expect(
+    await screen.findByRole('heading', { name: 'Import CSV' }),
+  ).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(

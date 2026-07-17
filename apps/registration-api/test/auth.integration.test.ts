@@ -23,6 +23,7 @@ const suite = enabled ? describe : describe.skip;
 suite('administrative authentication', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   beforeAll(async () => {
+    await prisma.registrationImport.deleteMany();
     await prisma.auditEvent.deleteMany();
     await prisma.scopeEligibility.deleteMany();
     await prisma.registrationRecord.deleteMany();
@@ -258,6 +259,7 @@ suite('administrative authentication', () => {
     expect(eligibility.json().eligibility.votingWeight).toBe('2.5');
     const auditorLogin = await app.inject({
       method: 'POST',
+      remoteAddress: '127.0.0.3',
       url: '/api/v1/admin/auth/login',
       payload: { email: 'auditor@example.com', password: 'auditor-password' },
     });
@@ -405,5 +407,95 @@ suite('administrative authentication', () => {
         where: { votingScopeId: lockingScope.id },
       }),
     ).toBe(0);
+  });
+  it('previews and partially commits an idempotent CSV import', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      remoteAddress: '127.0.0.2',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const raw = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    const auditorLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'auditor@example.com', password: 'auditor-password' },
+    });
+    const auditorRaw = auditorLogin.headers['set-cookie']!;
+    const auditorCookie = (
+      Array.isArray(auditorRaw) ? auditorRaw[0]! : auditorRaw
+    ).split(';')[0]!;
+    const csv = [
+      'unit_number,owner_name,email,voting_weight,eligible',
+      'D-401,Import Owner,import@example.com,2.5000,true',
+      'D-402,,bad-email,1.0000,true',
+      'D-401,Duplicate Owner,,1.0000,true',
+    ].join('\n');
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/registrations/import/preview',
+          headers: { cookie: auditorCookie },
+          payload: { fileName: 'registrations.csv', csv },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import/preview',
+      headers: { cookie },
+      payload: { fileName: 'registrations.csv', csv },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().preview.summary).toEqual({
+      total: 3,
+      valid: 1,
+      rejected: 2,
+    });
+    expect(preview.json().preview.rows[1].errors[0]).toMatchObject({
+      row: 3,
+      field: 'owner_name',
+    });
+    const committed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import',
+      headers: { cookie },
+      payload: { fileName: 'registrations.csv', csv },
+    });
+    expect(committed.statusCode).toBe(201);
+    expect(committed.json().import).toMatchObject({
+      totalRows: 3,
+      importedRows: 1,
+      rejectedRows: 2,
+    });
+    expect(
+      await prisma.registrationRecord.count({ where: { unitNumber: 'D-401' } }),
+    ).toBe(1);
+    const repeated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import',
+      headers: { cookie },
+      payload: { fileName: 'renamed.csv', csv },
+    });
+    expect(repeated.statusCode).toBe(409);
+    expect(repeated.json().code).toBe('IMPORT_ALREADY_COMMITTED');
+    const report = await app.inject({
+      url: committed.json().errorReportUrl,
+      headers: { cookie },
+    });
+    expect(report.statusCode).toBe(200);
+    expect(report.headers['content-type']).toContain('text/csv');
+    expect(report.body).toContain('DUPLICATE_IN_FILE');
+    expect(report.body).not.toContain('Duplicate Owner');
+    const audit = await prisma.auditEvent.findFirstOrThrow({
+      where: { eventType: 'REGISTRATION_CSV_IMPORTED' },
+    });
+    expect(audit.metadata).toMatchObject({
+      totalRows: 3,
+      importedRows: 1,
+      rejectedRows: 2,
+    });
   });
 });

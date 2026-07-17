@@ -395,6 +395,161 @@ export const messages = {
     en: 'Deactivate {unit}? Its history will be preserved.',
     es: '¿Desactivar {unit}? Se conservará su historial.',
   },
+  csvImport: {
+    description: 'Heading for importing registration records from a CSV file.',
+    en: 'Import CSV',
+    es: 'Importar CSV',
+  },
+  csvImportHelp: {
+    description: 'Instructions shown above the registration CSV upload form.',
+    en: 'Upload a CSV to validate and preview every row before committing valid records.',
+    es: 'Carga un CSV para validar y previsualizar cada fila antes de confirmar los registros válidos.',
+  },
+  csvFile: {
+    description: 'Label for the registration CSV file input.',
+    en: 'CSV file',
+    es: 'Archivo CSV',
+  },
+  previewImport: {
+    description:
+      'Button that uploads and validates a CSV without saving records.',
+    en: 'Preview import',
+    es: 'Previsualizar importación',
+  },
+  previewingImport: {
+    description: 'Button text while the CSV preview is being prepared.',
+    en: 'Preparing preview…',
+    es: 'Preparando vista previa…',
+  },
+  importPreviewFailed: {
+    description: 'Error shown when a CSV preview request fails.',
+    en: 'Unable to preview the CSV.',
+    es: 'No fue posible previsualizar el CSV.',
+  },
+  importSummary: {
+    description:
+      'CSV preview summary with substituted total, valid, and rejected row counts.',
+    en: 'Total: {total}. Valid: {valid}. Rejected: {rejected}.',
+    es: 'Total: {total}. Válidas: {valid}. Rechazadas: {rejected}.',
+  },
+  importPreviewValidRow: {
+    description:
+      'CSV preview line for a valid row with substituted row, unit, and owner.',
+    en: 'Row {row}: {unit} — {owner}',
+    es: 'Fila {row}: {unit} — {owner}',
+  },
+  importPreviewRejectedRow: {
+    description: 'CSV preview line identifying a rejected row.',
+    en: 'Row {row}: rejected',
+    es: 'Fila {row}: rechazada',
+  },
+  importRowError: {
+    description:
+      'CSV validation error with substituted row, field, and explanation.',
+    en: 'Row {row}, {field}: {message}',
+    es: 'Fila {row}, {field}: {message}',
+  },
+  commitImport: {
+    description: 'Button that saves all valid rows from a previewed CSV.',
+    en: 'Commit valid rows',
+    es: 'Confirmar filas válidas',
+  },
+  committingImport: {
+    description: 'Button text while valid CSV rows are being saved.',
+    en: 'Committing import…',
+    es: 'Confirmando importación…',
+  },
+  importCommitted: {
+    description: 'Success message after a CSV import is committed.',
+    en: 'CSV import committed.',
+    es: 'Importación CSV confirmada.',
+  },
+  importAlreadyCommitted: {
+    description: 'Error when the same CSV content was already imported.',
+    en: 'This CSV was already imported.',
+    es: 'Este CSV ya fue importado.',
+  },
+  importCommitFailed: {
+    description: 'Generic error when a CSV import cannot be committed.',
+    en: 'Unable to commit the CSV import.',
+    es: 'No fue posible confirmar la importación CSV.',
+  },
+  importResult: {
+    description:
+      'Committed CSV result with substituted imported and rejected row counts.',
+    en: 'Imported: {imported}. Rejected: {rejected}.',
+    es: 'Importadas: {imported}. Rechazadas: {rejected}.',
+  },
+  downloadErrorReport: {
+    description: 'Link that downloads row-level CSV import errors.',
+    en: 'Download error report',
+    es: 'Descargar reporte de errores',
+  },
+  importErrorFileTooLarge: {
+    description:
+      'CSV validation message when the selected file exceeds the size limit.',
+    en: 'The CSV exceeds the 2 MiB limit.',
+    es: 'El CSV supera el límite de 2 MiB.',
+  },
+  importErrorInvalidCsv: {
+    description: 'CSV validation message for malformed CSV syntax.',
+    en: 'The CSV format is invalid.',
+    es: 'El formato CSV no es válido.',
+  },
+  importErrorEmptyFile: {
+    description: 'CSV validation message when the file has no rows.',
+    en: 'The CSV is empty.',
+    es: 'El CSV está vacío.',
+  },
+  importErrorMissingHeader: {
+    description:
+      'CSV validation message when a required column header is absent.',
+    en: 'A required header is missing.',
+    es: 'Falta un encabezado obligatorio.',
+  },
+  importErrorEmptyHeader: {
+    description: 'CSV validation message when a column header is blank.',
+    en: 'A column header is empty.',
+    es: 'Un encabezado de columna está vacío.',
+  },
+  importErrorUnknownHeader: {
+    description: 'CSV validation message when a column is not supported.',
+    en: 'The column is not supported.',
+    es: 'La columna no es compatible.',
+  },
+  importErrorDuplicateHeader: {
+    description:
+      'CSV validation message when a column header occurs more than once.',
+    en: 'The column header is duplicated.',
+    es: 'El encabezado de columna está duplicado.',
+  },
+  importErrorTooManyRows: {
+    description: 'CSV validation message when the row limit is exceeded.',
+    en: 'The CSV exceeds the 5,000-row limit.',
+    es: 'El CSV supera el límite de 5,000 filas.',
+  },
+  importErrorColumnCount: {
+    description:
+      'CSV validation message when a row has the wrong number of columns.',
+    en: 'The row has the wrong number of columns.',
+    es: 'La fila tiene un número incorrecto de columnas.',
+  },
+  importErrorInvalidField: {
+    description: 'CSV validation message when one field has an invalid value.',
+    en: 'The value is invalid.',
+    es: 'El valor no es válido.',
+  },
+  importErrorDuplicateInFile: {
+    description: 'CSV validation message for a repeated unit inside one file.',
+    en: 'The unit is duplicated in this CSV; the first valid row wins.',
+    es: 'La unidad está duplicada en este CSV; prevalece la primera fila válida.',
+  },
+  importErrorDuplicateExisting: {
+    description:
+      'CSV validation message when the unit already exists in registration records.',
+    en: 'The unit already exists.',
+    es: 'La unidad ya existe.',
+  },
   statusDraft: {
     description: 'Display label for the DRAFT voting-scope status.',
     en: 'Draft',

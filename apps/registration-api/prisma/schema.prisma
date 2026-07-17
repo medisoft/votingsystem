@@ -139,3 +139,18 @@ model AuditEvent {
   @@index([occurredAt])
   @@index([eventType])
 }
+
+model RegistrationImport {
+  id           String   @id @default(uuid()) @db.Uuid
+  fileHash     String   @unique
+  fileName     String
+  totalRows    Int
+  importedRows Int
+  rejectedRows Int
+  errors       Json
+  createdBy    String   @db.Uuid
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([createdBy])
+}
