@@ -9,16 +9,15 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: registration
+          POSTGRES_DB: registration_test
           POSTGRES_USER: voting
           POSTGRES_PASSWORD: voting
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U voting -d registration"
+          --health-cmd "pg_isready -U voting -d registration_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql://voting:voting@localhost:5432/registration?schema=public
-      ALLOW_DATABASE_RESET: 'true'
+      DATABASE_URL: postgresql://voting:voting@localhost:5432/registration_test?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,3 +28,6 @@ jobs:
       - run: npm run db:generate
       - run: npm run db:migrate
       - run: npm run check
+      - run: npm run test:integration -w @voting/registration-api
+        env:
+          ALLOW_DATABASE_RESET: 'true'
