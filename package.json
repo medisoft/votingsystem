@@ -20,7 +20,8 @@
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "db:generate": "npm run db:generate -w @voting/registration-api",
     "db:migrate": "npm run db:migrate -w @voting/registration-api",
-    "db:seed": "npm run db:seed -w @voting/registration-api"
+    "db:seed": "npm run db:seed -w @voting/registration-api",
+    "test:integration": "docker compose --profile test up -d --wait postgres-test && DATABASE_URL=postgresql://voting:voting@localhost:15433/registration_test?schema=public npm run db:migrate -w @voting/registration-api && DATABASE_URL=postgresql://voting:voting@localhost:15433/registration_test?schema=public ALLOW_DATABASE_RESET=true npm run test:integration -w @voting/registration-api"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

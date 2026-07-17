@@ -386,7 +386,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–4 are complete. Stage 4.1 adds English and Spanish localization to the administrative interface before CSV import work begins in Stage 5.
+Registration Service Stages 1–4 are complete. Stage 4.1 adds English and Spanish localization, and Stage 4.2 isolates destructive integration tests in a dedicated ephemeral database before CSV import work begins in Stage 5.
 
 The MVP will prioritize:
 
