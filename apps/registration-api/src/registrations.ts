@@ -113,12 +113,12 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
       if (!p.success) return reply.code(400).send({ code: 'INVALID_ID' });
       const record =
         request.admin?.role === 'AUDITOR'
-          ? await app.prisma.registrationRecord.findUnique({
-              where: { id: p.data.id },
+          ? await app.prisma.registrationRecord.findFirst({
+              where: { id: p.data.id, deletedAt: null },
               select: auditorSelect,
             })
-          : await app.prisma.registrationRecord.findUnique({
-              where: { id: p.data.id },
+          : await app.prisma.registrationRecord.findFirst({
+              where: { id: p.data.id, deletedAt: null },
               include,
             });
       return record
@@ -154,7 +154,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         targetType: 'RegistrationRecord',
         targetId: record.id,
         sourceIp: request.ip,
-        metadata: { unitNumber: record.unitNumber },
+        metadata: { version: record.version },
       });
       return reply.code(201).send({ record });
     },
@@ -171,13 +171,23 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
       const changes = clean(raw);
       if (raw.votingWeight)
         changes.votingWeight = new Prisma.Decimal(raw.votingWeight);
-      const result = await app.prisma.registrationRecord.updateMany({
-        where: { id: p.data.id, version, deletedAt: null },
-        data: {
-          ...changes,
-          version: { increment: 1 },
-        } as Prisma.RegistrationRecordUpdateManyMutationInput,
-      });
+      let result;
+      try {
+        result = await app.prisma.registrationRecord.updateMany({
+          where: { id: p.data.id, version, deletedAt: null },
+          data: {
+            ...changes,
+            version: { increment: 1 },
+          } as Prisma.RegistrationRecordUpdateManyMutationInput,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          return reply.code(409).send({ code: 'UNIT_EXISTS' });
+        throw error;
+      }
       if (!result.count)
         return reply.code(409).send({ code: 'VERSION_CONFLICT_OR_NOT_FOUND' });
       const record = await app.prisma.registrationRecord.findUniqueOrThrow({
@@ -200,10 +210,14 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
     '/api/v1/admin/registrations/:id',
     { preHandler: app.requireSystemAdmin },
     async (request, reply) => {
-      const p = z.object({ id: uuid }).safeParse(request.params);
-      if (!p.success) return reply.code(400).send({ code: 'INVALID_ID' });
+      const p = z.object({ id: uuid }).safeParse(request.params),
+        body = z
+          .object({ version: z.number().int().positive() })
+          .safeParse(request.body);
+      if (!p.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_REGISTRATION' });
       const result = await app.prisma.registrationRecord.updateMany({
-        where: { id: p.data.id, deletedAt: null },
+        where: { id: p.data.id, version: body.data.version, deletedAt: null },
         data: {
           deletedAt: new Date(),
           status: 'INACTIVE',
@@ -212,7 +226,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         },
       });
       if (!result.count)
-        return reply.code(404).send({ code: 'REGISTRATION_NOT_FOUND' });
+        return reply.code(409).send({ code: 'VERSION_CONFLICT_OR_NOT_FOUND' });
       await appendAudit(app.prisma, {
         actorType: ActorType.ADMIN,
         actorId: request.admin!.id,
@@ -234,46 +248,56 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           .safeParse(request.body);
       if (!p.success || !body.success)
         return reply.code(400).send({ code: 'INVALID_ELIGIBILITY' });
-      const record = await app.prisma.registrationRecord.findFirst({
-          where: { id: p.data.id, deletedAt: null },
-        }),
-        scope = await app.prisma.votingScope.findUnique({
-          where: { id: p.data.scopeId },
-        });
-      if (!record || !scope)
-        return reply.code(404).send({ code: 'RECORD_OR_SCOPE_NOT_FOUND' });
-      if (
-        scope.status !== VotingScopeStatus.DRAFT &&
-        scope.status !== VotingScopeStatus.REGISTRATION_OPEN
-      )
-        return reply.code(409).send({ code: 'SCOPE_REGISTRATION_CLOSED' });
       const data = {
         eligible: body.data.eligible,
         votingWeight: new Prisma.Decimal(body.data.votingWeight),
       };
-      const eligibility = await app.prisma.scopeEligibility.upsert({
-        where: {
-          registrationRecordId_votingScopeId: {
+      const eligibility = await app.prisma.$transaction(async (tx) => {
+        const [scope] = await tx.$queryRaw<
+          Array<{ id: string; status: VotingScopeStatus }>
+        >(Prisma.sql`
+          SELECT "id", "status"
+          FROM "VotingScope"
+          WHERE "id" = ${p.data.scopeId}::uuid
+          FOR UPDATE
+        `);
+        const record = await tx.registrationRecord.findFirst({
+          where: { id: p.data.id, deletedAt: null },
+        });
+        if (!record || !scope) return null;
+        if (
+          scope.status !== VotingScopeStatus.DRAFT &&
+          scope.status !== VotingScopeStatus.REGISTRATION_OPEN
+        )
+          return 'SCOPE_REGISTRATION_CLOSED' as const;
+        return tx.scopeEligibility.upsert({
+          where: {
+            registrationRecordId_votingScopeId: {
+              registrationRecordId: record.id,
+              votingScopeId: scope.id,
+            },
+          },
+          update: data,
+          create: {
+            ...data,
             registrationRecordId: record.id,
             votingScopeId: scope.id,
           },
-        },
-        update: data,
-        create: {
-          ...data,
-          registrationRecordId: record.id,
-          votingScopeId: scope.id,
-        },
+        });
       });
+      if (!eligibility)
+        return reply.code(404).send({ code: 'RECORD_OR_SCOPE_NOT_FOUND' });
+      if (eligibility === 'SCOPE_REGISTRATION_CLOSED')
+        return reply.code(409).send({ code: eligibility });
       await appendAudit(app.prisma, {
         actorType: ActorType.ADMIN,
         actorId: request.admin!.id,
         eventType: 'SCOPE_ELIGIBILITY_SET',
         targetType: 'RegistrationRecord',
-        targetId: record.id,
+        targetId: p.data.id,
         sourceIp: request.ip,
         metadata: {
-          scopeId: scope.id,
+          scopeId: p.data.scopeId,
           eligible: eligibility.eligible,
           weight: eligibility.votingWeight.toFixed(4),
         },

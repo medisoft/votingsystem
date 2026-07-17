@@ -1,4 +1,4 @@
-import { AdminRole } from '@prisma/client';
+import { AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -213,6 +213,25 @@ suite('administrative authentication', () => {
       ).statusCode,
     ).toBe(409);
     const record = created.json().record;
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations',
+      headers: { cookie },
+      payload: {
+        unitNumber: 'B-202',
+        ownerName: 'Second Owner',
+        votingWeight: '1.0000',
+      },
+    });
+    expect(second.statusCode).toBe(201);
+    const duplicateUpdate = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/registrations/' + second.json().record.id,
+      headers: { cookie },
+      payload: { unitNumber: 'A-101', version: second.json().record.version },
+    });
+    expect(duplicateUpdate.statusCode).toBe(409);
+    expect(duplicateUpdate.json().code).toBe('UNIT_EXISTS');
     expect(
       (
         await app.inject({
@@ -279,16 +298,14 @@ suite('administrative authentication', () => {
         })
       ).statusCode,
     ).toBe(409);
-    expect(
-      (
-        await app.inject({
-          method: 'PATCH',
-          url: `/api/v1/admin/registrations/${record.id}`,
-          headers: { cookie },
-          payload: { ownerName: 'Updated Owner', version: record.version },
-        })
-      ).statusCode,
-    ).toBe(200);
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/registrations/' + record.id,
+      headers: { cookie },
+      payload: { ownerName: 'Updated Owner', version: record.version },
+    });
+    expect(updated.statusCode).toBe(200);
+    const updatedRecord = updated.json().record;
     expect(
       (
         await app.inject({
@@ -303,11 +320,30 @@ suite('administrative authentication', () => {
       (
         await app.inject({
           method: 'DELETE',
-          url: `/api/v1/admin/registrations/${record.id}`,
+          url: '/api/v1/admin/registrations/' + record.id,
           headers: { cookie },
+          payload: { version: record.version },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          method: 'DELETE',
+          url: '/api/v1/admin/registrations/' + record.id,
+          headers: { cookie },
+          payload: { version: updatedRecord.version },
         })
       ).statusCode,
     ).toBe(204);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/registrations/' + record.id,
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(404);
     expect(
       (
         await app.inject({
@@ -316,5 +352,56 @@ suite('administrative authentication', () => {
         })
       ).json().records,
     ).toHaveLength(0);
+    const auditorEvents = await app.inject({
+      url: '/api/v1/admin/audit-events',
+      headers: { cookie: auditorCookie },
+    });
+    expect(auditorEvents.statusCode).toBe(200);
+    expect(JSON.stringify(auditorEvents.json().events)).not.toContain('A-101');
+    expect(JSON.stringify(auditorEvents.json().events)).not.toContain('B-202');
+
+    const lockingScope = await prisma.votingScope.create({
+      data: {
+        name: 'Concurrent scope',
+        description: null,
+        status: 'REGISTRATION_OPEN',
+        startsAt: scope.startsAt,
+        endsAt: scope.endsAt,
+        activationStartsAt: scope.activationStartsAt,
+        activationEndsAt: scope.activationEndsAt,
+        credentialExpiresAt: scope.credentialExpiresAt,
+        votingWeightsEnabled: true,
+        issuerKeyVersion: scope.issuerKeyVersion,
+      },
+    });
+    let pendingEligibility!: Promise<{ statusCode: number }>;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "VotingScope"
+        WHERE "id" = ${lockingScope.id}::uuid
+        FOR UPDATE
+      `);
+      pendingEligibility = app.inject({
+        method: 'PUT',
+        url:
+          '/api/v1/admin/registrations/' +
+          second.json().record.id +
+          '/scopes/' +
+          lockingScope.id,
+        headers: { cookie },
+        payload: { eligible: true, votingWeight: '1.0000' },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await tx.votingScope.update({
+        where: { id: lockingScope.id },
+        data: { status: 'ACTIVATION_OPEN', version: { increment: 1 } },
+      });
+    });
+    expect((await pendingEligibility).statusCode).toBe(409);
+    expect(
+      await prisma.scopeEligibility.count({
+        where: { votingScopeId: lockingScope.id },
+      }),
+    ).toBe(0);
   });
 });
