@@ -975,6 +975,28 @@ INVALID-ONLY,
     expect(storedFirst.tokenHash).toBe(hashActivationToken(first.rawToken));
     expect(JSON.stringify(storedFirst)).not.toContain(first.rawToken);
 
+    const deliveredResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/activation-tokens/' + first.id + '/delivered',
+      headers: { cookie },
+      payload: { deliveryMethod: 'PRINT' },
+    });
+    expect(deliveredResponse.statusCode).toBe(200);
+    expect(deliveredResponse.json().activationToken.deliveredAt).toBeTruthy();
+    expect(deliveredResponse.json().activationToken).not.toHaveProperty(
+      'rawToken',
+    );
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/activation-tokens/' + first.id + '/delivered',
+          headers: { cookie },
+          payload: { deliveryMethod: 'PRINT' },
+        })
+      ).statusCode,
+    ).toBe(409);
+
     const replacementResponse = await app.inject({
       method: 'POST',
       url: generateUrl,
@@ -1045,6 +1067,7 @@ INVALID-ONLY,
     expect(auditEvents.map((event) => event.eventType)).toEqual(
       expect.arrayContaining([
         'ACTIVATION_TOKEN_GENERATED',
+        'ACTIVATION_TOKEN_DELIVERED',
         'ACTIVATION_TOKEN_REPLACED',
         'ACTIVATION_TOKEN_REVOKED',
       ]),

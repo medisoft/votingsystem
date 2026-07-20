@@ -16,6 +16,9 @@ const generateBody = z.object({
   deliveryMethod: z.string().trim().min(1).max(64).optional(),
 });
 const revokeBody = z.object({ reason: z.string().trim().min(3).max(500) });
+const deliveryBody = z.object({
+  deliveryMethod: z.string().trim().min(1).max(64),
+});
 const ACTIVATION_TOKEN_TRANSACTION_TIMEOUT_MS = 60_000;
 
 const publicToken = (token: {
@@ -155,6 +158,54 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
           rawToken: generated.rawToken,
         },
       });
+    },
+  );
+
+  app.post(
+    '/api/v1/admin/activation-tokens/:id/delivered',
+    {
+      preHandler: app.requireRegistrationWrite,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const params = revokeParams.safeParse(request.params);
+      const body = deliveryBody.safeParse(request.body);
+      if (!params.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_DELIVERY_REQUEST' });
+      const deliveredAt = new Date();
+      const updated = await app.prisma.activationToken.updateMany({
+        where: {
+          id: params.data.id,
+          status: ActivationTokenStatus.ACTIVE,
+          deliveredAt: null,
+        },
+        data: { deliveredAt, deliveryMethod: body.data.deliveryMethod },
+      });
+      if (!updated.count) {
+        const existing = await app.prisma.activationToken.findUnique({
+          where: { id: params.data.id },
+        });
+        if (!existing)
+          return reply.code(404).send({ code: 'ACTIVATION_TOKEN_NOT_FOUND' });
+        if (existing.status !== ActivationTokenStatus.ACTIVE)
+          return reply.code(409).send({ code: 'ACTIVATION_TOKEN_NOT_ACTIVE' });
+        return reply
+          .code(409)
+          .send({ code: 'ACTIVATION_TOKEN_ALREADY_DELIVERED' });
+      }
+      const token = await app.prisma.activationToken.findUniqueOrThrow({
+        where: { id: params.data.id },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'ACTIVATION_TOKEN_DELIVERED',
+        targetType: 'ActivationToken',
+        targetId: token.id,
+        sourceIp: request.ip,
+        metadata: { deliveryMethod: body.data.deliveryMethod },
+      });
+      return { activationToken: publicToken(token) };
     },
   );
 

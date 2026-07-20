@@ -690,6 +690,7 @@ PATCH  /api/v1/admin/scopes/:id
 
 ```text
 POST   /api/v1/admin/registrations/:id/scopes/:scopeId/activation-token
+POST   /api/v1/admin/activation-tokens/:id/delivered
 POST   /api/v1/admin/activation-tokens/:id/revoke
 POST   /api/v1/admin/credentials/:id/revoke
 POST   /api/v1/admin/credentials/:id/reissue
@@ -1077,7 +1078,11 @@ Stage 6.1 foundation implementation contract:
 * Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token.
 * The raw token appears only in the successful generation response; later responses, storage, logs, and audit metadata expose only non-secret lifecycle fields.
 * Generation, replacement, and revocation create audit events without raw token material.
-* QR rendering, administrative lifecycle UI, and downloadable delivery formats remain part of the next Stage 6 slice.
+* Stage 6.3 generates QR PNG data locally in the administrator browser from the one-time raw-token response; the QR payload is the opaque token only and contains no personal information.
+* The administrative UI supports generation, atomic replacement, active-token status, revocation, printable instructions, and one-time PNG download.
+* Secure-delivery confirmation records the delivery timestamp and method, creates an audit event, and permanently hides the raw token and QR from the UI.
+* QR generation failure revokes the newly created unusable token. Printable PDF layout remains deferred.
+* The qrcode dependency evaluation, license, security audit, and compatibility evidence are documented in README.md.
 
 ---
 

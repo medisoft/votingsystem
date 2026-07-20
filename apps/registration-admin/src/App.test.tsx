@@ -7,7 +7,12 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import QRCode from 'qrcode';
 import { App } from './App';
+
+vi.mock('qrcode', () => ({
+  default: { toDataURL: vi.fn(async () => 'data:image/png;base64,qr') },
+}));
 
 type MockResponse = {
   ok: boolean;
@@ -418,4 +423,172 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Previous rows' }));
   expect(screen.getByText('Showing entries 1–100 of 101.')).toBeInTheDocument();
   vi.stubGlobal('FormData', originalFormData);
+});
+
+it('generates, downloads, confirms delivery, and revokes an activation QR', async () => {
+  const scope = {
+    id: 'scope-1',
+    name: 'Annual vote',
+    description: null,
+    status: 'ACTIVATION_OPEN',
+    startsAt: '2035-01-01T12:00:00.000Z',
+    endsAt: '2035-01-01T18:00:00.000Z',
+    activationStartsAt: '2035-01-01T10:00:00.000Z',
+    activationEndsAt: '2035-01-01T17:00:00.000Z',
+    credentialExpiresAt: '2035-01-02T00:00:00.000Z',
+    votingWeightsEnabled: false,
+    issuerKeyVersion: '2035-01',
+    version: 1,
+  };
+  let activeToken: Record<string, unknown> | null = null;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith('/api/v1/admin/me'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          user: {
+            id: 'operator-qr',
+            email: 'operator-qr@example.com',
+            role: 'REGISTRATION_OPERATOR',
+            status: 'ACTIVE',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      };
+    if (path.endsWith('/api/v1/admin/scopes'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ scopes: [scope] }),
+      };
+    if (path.includes('/api/v1/admin/registrations?'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          records: [
+            {
+              id: 'record-1',
+              unitNumber: 'A-1',
+              ownerName: 'Owner',
+              email: null,
+              phone: null,
+              votingWeight: '1.0000',
+              eligible: true,
+              status: 'ACTIVE',
+              version: 1,
+              scopeEligibilities: [],
+              activationTokens: activeToken ? [activeToken] : [],
+            },
+          ],
+        }),
+      };
+    if (
+      path.endsWith(
+        '/api/v1/admin/registrations/record-1/scopes/scope-1/activation-token',
+      )
+    ) {
+      activeToken = {
+        id: 'token-1',
+        votingScopeId: 'scope-1',
+        tokenPrefixForSupport: 'abcdefgh',
+        status: 'ACTIVE',
+        expiresAt: scope.activationEndsAt,
+        generatedAt: new Date().toISOString(),
+        deliveryMethod: 'PRINT',
+        deliveredAt: null,
+      };
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          activationToken: {
+            ...activeToken,
+            registrationRecordId: 'record-1',
+            rawToken: 'opaque-activation-token',
+          },
+        }),
+      };
+    }
+    if (path.endsWith('/api/v1/admin/activation-tokens/token-1/delivered')) {
+      activeToken = { ...activeToken, deliveredAt: new Date().toISOString() };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ activationToken: activeToken }),
+      };
+    }
+    if (path.endsWith('/api/v1/admin/activation-tokens/token-1/revoke')) {
+      activeToken = null;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          activationToken: { id: 'token-1', status: 'REVOKED' },
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  await screen.findByRole('heading', { name: 'Activation tokens' });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Generate activation token' }),
+  );
+  const delivery = await screen.findByRole('region', {
+    name: 'One-time activation QR',
+  });
+  expect(screen.getByAltText('Activation token QR code')).toHaveAttribute(
+    'src',
+    'data:image/png;base64,qr',
+  );
+  expect(QRCode.toDataURL).toHaveBeenCalledWith(
+    'opaque-activation-token',
+    expect.objectContaining({ type: 'image/png' }),
+  );
+  expect(screen.getByText('opaque-activation-token')).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download QR as PNG' }),
+  ).toHaveAttribute('download', 'activation-abcdefgh.png');
+  expect(delivery).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Confirm secure delivery and hide secret',
+    }),
+  );
+  expect(
+    await screen.findByText(
+      'Secure delivery confirmed; the raw token has been hidden.',
+    ),
+  ).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'One-time activation QR' }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Current active token' }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Revocation reason'), {
+    target: { value: 'Resident requested replacement' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke active token' }));
+  expect(
+    await screen.findByText('Activation token revoked.'),
+  ).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/activation-tokens/token-1/revoke'),
+    expect.objectContaining({ method: 'POST' }),
+  );
 });

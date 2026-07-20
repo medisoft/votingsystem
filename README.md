@@ -92,13 +92,15 @@ Invalid rows show their exact CSV row and field. Valid rows can still be committ
 
 Known limitations: imports create new registration records only; updating existing units and assigning per-scope eligibility through CSV are deferred. Error explanations are localized in the UI, while error-report codes remain stable English API identifiers.
 
-## Stage 6.2 activation-token lifecycle API
+## Stage 6 activation-token lifecycle and QR delivery
 
 Activation tokens use 32 bytes (256 bits) of cryptographically secure randomness encoded as URL-safe opaque strings. Only SHA-256 hashes and an eight-character support prefix are persisted. The raw token is returned exactly once by the administrative generation response and is excluded from later responses, storage, logs, and audit metadata.
 
 POST /api/v1/admin/registrations/:id/scopes/:scopeId/activation-token generates or replaces a token for an eligible registration. Replacement atomically revokes the prior ACTIVE token. Expiration defaults to the scope activation end and cannot exceed it. POST /api/v1/admin/activation-tokens/:id/revoke revokes an ACTIVE token with a reason. Both endpoints require registration-write permission, are rate limited to 10 requests per minute per client, and create audit events.
 
-QR rendering, the administrative token UI, and downloadable PNG/print delivery remain for Stage 6 Step 3.
+Stage 6 Step 3 generates the opaque-token QR locally in the administrator browser, supports a one-time PNG download and printable instructions, records secure-delivery confirmation, and exposes non-secret active-token status for later revocation or replacement. The raw token and QR data are discarded after delivery confirmation, selection changes, revocation, or page exit. Printable PDF layout remains deferred.
+
+The admin uses qrcode 1.5.4 instead of a custom QR encoder. It was selected for its established Node/browser implementation and PNG data-URL support. The package is MIT licensed, declares Node >=10.13 compatibility, and is compatible with this project’s Node 24, React 19, Vite 6, and TypeScript setup. At selection time, npm reported no known production dependency vulnerabilities; qrcode 1.5.4 and the @types/qrcode 1.5.6 definitions were the current published releases. Maintenance and release evidence: https://www.npmjs.com/package/qrcode and https://github.com/soldair/node-qrcode.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.

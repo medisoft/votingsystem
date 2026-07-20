@@ -38,6 +38,19 @@ const include = {
       votingScope: { select: { id: true, name: true, status: true } },
     },
   },
+  activationTokens: {
+    where: { status: 'ACTIVE' as const },
+    select: {
+      id: true,
+      votingScopeId: true,
+      tokenPrefixForSupport: true,
+      status: true,
+      expiresAt: true,
+      generatedAt: true,
+      deliveryMethod: true,
+      deliveredAt: true,
+    },
+  },
 };
 const auditorSelect = {
   id: true,

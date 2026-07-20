@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import QRCode from 'qrcode';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createTranslator, detectLocale } from './i18n';
 
@@ -51,6 +52,22 @@ interface Registration {
     votingWeight: string;
     votingScope: { id: string; name: string; status: ScopeStatus };
   }>;
+  activationTokens: ActivationTokenSummary[];
+}
+interface ActivationTokenSummary {
+  id: string;
+  votingScopeId: string;
+  tokenPrefixForSupport: string;
+  status: 'ACTIVE';
+  expiresAt: string;
+  generatedAt: string;
+  deliveryMethod: string | null;
+  deliveredAt: string | null;
+}
+interface GeneratedActivationToken extends ActivationTokenSummary {
+  registrationRecordId: string;
+  rawToken: string;
+  qrDataUrl: string;
 }
 interface CsvImportPreview {
   fileHash: string;
@@ -224,6 +241,10 @@ function Dashboard({ user }: { user: User }) {
   const { locale, t } = useI18n();
   const client = useQueryClient();
   const [message, setMessage] = useState('');
+  const [tokenRecordId, setTokenRecordId] = useState('');
+  const [tokenScopeId, setTokenScopeId] = useState('');
+  const [generatedActivationToken, setGeneratedActivationToken] =
+    useState<GeneratedActivationToken | null>(null);
   const [importSource, setImportSource] = useState<{
     fileName: string;
     csv: string;
@@ -253,6 +274,12 @@ function Dashboard({ user }: { user: User }) {
         `/api/v1/admin/registrations?search=${encodeURIComponent(registrationSearch)}`,
       ),
   });
+  useEffect(() => {
+    if (!tokenRecordId && registrations.data?.records[0])
+      setTokenRecordId(registrations.data.records[0].id);
+    if (!tokenScopeId && scopes.data?.scopes[0])
+      setTokenScopeId(scopes.data.scopes[0].id);
+  }, [registrations.data, scopes.data, tokenRecordId, tokenScopeId]);
   const registrationMutation = useMutation({
     mutationFn: ({
       path,
@@ -273,6 +300,86 @@ function Dashboard({ user }: { user: User }) {
     },
     onError: (error) =>
       setMessage(t('recordSaveFailed', { error: error.message })),
+  });
+  const generateActivationTokenMutation = useMutation({
+    mutationFn: async (input: {
+      registrationRecordId: string;
+      votingScopeId: string;
+      deliveryMethod: string;
+    }) => {
+      const response = await api<{
+        activationToken: Omit<GeneratedActivationToken, 'qrDataUrl'>;
+      }>(
+        '/api/v1/admin/registrations/' +
+          input.registrationRecordId +
+          '/scopes/' +
+          input.votingScopeId +
+          '/activation-token',
+        {
+          method: 'POST',
+          body: JSON.stringify({ deliveryMethod: input.deliveryMethod }),
+        },
+      );
+      try {
+        const qrDataUrl = await QRCode.toDataURL(
+          response.activationToken.rawToken,
+          {
+            errorCorrectionLevel: 'M',
+            margin: 4,
+            width: 512,
+            type: 'image/png',
+          },
+        );
+        return { ...response.activationToken, qrDataUrl };
+      } catch (error) {
+        await api(
+          '/api/v1/admin/activation-tokens/' +
+            response.activationToken.id +
+            '/revoke',
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason: 'QR generation failed' }),
+          },
+        );
+        throw error;
+      }
+    },
+    onSuccess: (activationToken) => {
+      setGeneratedActivationToken(activationToken);
+      setMessage(t('activationTokenGenerated'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
+  });
+  const confirmActivationTokenDelivery = useMutation({
+    mutationFn: (input: { id: string; deliveryMethod: string }) =>
+      api('/api/v1/admin/activation-tokens/' + input.id + '/delivered', {
+        method: 'POST',
+        body: JSON.stringify({ deliveryMethod: input.deliveryMethod }),
+      }),
+    onSuccess: () => {
+      setGeneratedActivationToken(null);
+      setMessage(t('activationTokenDelivered'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
+  });
+  const revokeActivationToken = useMutation({
+    mutationFn: (input: { id: string; reason: string }) =>
+      api('/api/v1/admin/activation-tokens/' + input.id + '/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ reason: input.reason }),
+      }),
+    onSuccess: (_result, input) => {
+      if (generatedActivationToken?.id === input.id)
+        setGeneratedActivationToken(null);
+      setMessage(t('activationTokenRevoked'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
   });
   const previewImport = useMutation({
     mutationFn: ({
@@ -335,6 +442,27 @@ function Dashboard({ user }: { user: User }) {
     const source = { fileName: file.name, csv: await file.text() };
     if (selection !== importSelection.current) return;
     previewImport.mutate({ source, selection });
+  };
+  const generateActivation = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setGeneratedActivationToken(null);
+    setMessage('');
+    generateActivationTokenMutation.mutate({
+      registrationRecordId: String(data.get('tokenRecordId')),
+      votingScopeId: String(data.get('tokenScopeId')),
+      deliveryMethod: String(data.get('deliveryMethod')),
+    });
+  };
+  const revokeSelectedActivationToken = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const tokenId = String(data.get('activationTokenId'));
+    if (!tokenId) return;
+    revokeActivationToken.mutate({
+      id: tokenId,
+      reason: String(data.get('revocationReason')),
+    });
   };
   const scopeMutation = useMutation({
     mutationFn: ({
@@ -468,6 +596,12 @@ function Dashboard({ user }: { user: User }) {
         body: { version: record.version },
       });
   };
+  const selectedTokenRecord = registrations.data?.records.find(
+    (record) => record.id === tokenRecordId,
+  );
+  const selectedActiveToken = selectedTokenRecord?.activationTokens?.find(
+    (token) => token.votingScopeId === tokenScopeId,
+  );
   const importPreviewStart = importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE;
   const importPreviewRows =
     importPreview?.rows.slice(
@@ -772,6 +906,159 @@ function Dashboard({ user }: { user: User }) {
                 {t('saveEligibility')}
               </button>
             </form>
+            <h2>{t('activationTokens')}</h2>
+            <p>{t('activationTokenHelp')}</p>
+            <form onSubmit={generateActivation}>
+              <label>
+                {t('record')}
+                <select
+                  name="tokenRecordId"
+                  value={tokenRecordId}
+                  onChange={(event) => {
+                    setTokenRecordId(event.target.value);
+                    setGeneratedActivationToken(null);
+                  }}
+                  required
+                >
+                  {registrations.data?.records.map((record) => (
+                    <option key={record.id} value={record.id}>
+                      {record.unitNumber} — {record.ownerName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('scope')}
+                <select
+                  name="tokenScopeId"
+                  value={tokenScopeId}
+                  onChange={(event) => {
+                    setTokenScopeId(event.target.value);
+                    setGeneratedActivationToken(null);
+                  }}
+                  required
+                >
+                  {scopes.data?.scopes.map((scope) => (
+                    <option key={scope.id} value={scope.id}>
+                      {scope.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('deliveryMethod')}
+                <select name="deliveryMethod" defaultValue="PRINT" required>
+                  <option value="PRINT">{t('deliveryPrint')}</option>
+                  <option value="SECURE_EMAIL">{t('deliveryEmail')}</option>
+                  <option value="MANUAL">{t('deliveryManual')}</option>
+                </select>
+              </label>
+              <button disabled={generateActivationTokenMutation.isPending}>
+                {generateActivationTokenMutation.isPending
+                  ? t('generatingActivationToken')
+                  : selectedActiveToken
+                    ? t('generateReplacementToken')
+                    : t('generateActivationToken')}
+              </button>
+            </form>
+            {selectedActiveToken && (
+              <div className="activation-card">
+                <h3>{t('activeActivationToken')}</h3>
+                <p>
+                  {t('activationTokenPrefix', {
+                    prefix: selectedActiveToken.tokenPrefixForSupport,
+                  })}
+                  <br />
+                  {t('activationTokenExpires', {
+                    date: new Date(
+                      selectedActiveToken.expiresAt,
+                    ).toLocaleString(locale),
+                  })}
+                  <br />
+                  {selectedActiveToken.deliveredAt
+                    ? t('activationTokenDeliveredStatus', {
+                        date: new Date(
+                          selectedActiveToken.deliveredAt,
+                        ).toLocaleString(locale),
+                      })
+                    : t('activationTokenNotDelivered')}
+                </p>
+                <form onSubmit={revokeSelectedActivationToken}>
+                  <input
+                    name="activationTokenId"
+                    type="hidden"
+                    value={selectedActiveToken.id}
+                  />
+                  <label>
+                    {t('revokeReason')}
+                    <input name="revocationReason" minLength={3} required />
+                  </label>
+                  <button
+                    className="secondary"
+                    disabled={revokeActivationToken.isPending}
+                  >
+                    {revokeActivationToken.isPending
+                      ? t('revokingActivationToken')
+                      : t('revokeActivationToken')}
+                  </button>
+                </form>
+              </div>
+            )}
+            {generatedActivationToken && (
+              <div
+                className="activation-card one-time-delivery"
+                role="region"
+                aria-label={t('oneTimeActivationTitle')}
+              >
+                <h3>{t('oneTimeActivationTitle')}</h3>
+                <p className="error">{t('oneTimeActivationWarning')}</p>
+                <img
+                  className="activation-qr"
+                  src={generatedActivationToken.qrDataUrl}
+                  alt={t('activationQrAlt')}
+                />
+                <p>{t('activationInstructions')}</p>
+                <label>
+                  {t('rawActivationToken')}
+                  <code className="activation-secret">
+                    {generatedActivationToken.rawToken}
+                  </code>
+                </label>
+                <a
+                  className="download-link"
+                  href={generatedActivationToken.qrDataUrl}
+                  download={
+                    'activation-' +
+                    generatedActivationToken.tokenPrefixForSupport +
+                    '.png'
+                  }
+                >
+                  {t('downloadActivationQr')}
+                </a>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => window.print()}
+                >
+                  {t('printActivationQr')}
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmActivationTokenDelivery.isPending}
+                  onClick={() =>
+                    confirmActivationTokenDelivery.mutate({
+                      id: generatedActivationToken.id,
+                      deliveryMethod:
+                        generatedActivationToken.deliveryMethod ?? 'MANUAL',
+                    })
+                  }
+                >
+                  {confirmActivationTokenDelivery.isPending
+                    ? t('confirmingSecureDelivery')
+                    : t('confirmSecureDelivery')}
+                </button>
+              </div>
+            )}
           </>
         )}
         <h2>{t('votingScopes')}</h2>

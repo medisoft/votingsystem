@@ -118,6 +118,75 @@ li span:last-child {
   color: #52616b;
   font-size: 0.9rem;
 }
+.activation-card {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #dce4e9;
+  border-radius: 0.75rem;
+}
+.one-time-delivery {
+  display: grid;
+  gap: 1rem;
+}
+.activation-qr {
+  width: min(100%, 32rem);
+  height: auto;
+  margin: 0 auto;
+  image-rendering: pixelated;
+}
+.activation-secret {
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+  background: #f3f6f8;
+  border-radius: 0.45rem;
+  font-weight: 400;
+}
+.download-link {
+  display: inline-block;
+  padding: 0.75rem;
+  border: 1px solid #174d69;
+  border-radius: 0.45rem;
+  color: #174d69;
+  font-weight: 700;
+  text-align: center;
+}
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: white;
+  }
+  main {
+    display: block;
+    min-height: 0;
+    padding: 0;
+  }
+  section.wide {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+  section.wide > * {
+    display: none !important;
+  }
+  section.wide > .one-time-delivery {
+    display: grid !important;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    break-inside: avoid;
+  }
+  .one-time-delivery button,
+  .one-time-delivery .download-link {
+    display: none !important;
+  }
+  .activation-qr {
+    width: 120mm;
+    max-width: 100%;
+  }
+}
 @media (max-width: 600px) {
   header,
   li {
