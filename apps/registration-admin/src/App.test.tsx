@@ -1,6 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 
 type MockResponse = {
@@ -8,6 +14,10 @@ type MockResponse = {
   status: number;
   json: () => Promise<unknown>;
 };
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 it('shows login when there is no session', async () => {
   vi.stubGlobal(
     'fetch',
@@ -308,5 +318,104 @@ A-1,Owner
   expect(
     screen.getByRole('button', { name: 'Commit valid rows' }),
   ).toBeDisabled();
+  vi.stubGlobal('FormData', originalFormData);
+});
+
+it('paginates every CSV preview row and exposes errors after row 100', async () => {
+  const rows = Array.from({ length: 101 }, (_, index) => {
+    const row = index + 2;
+    return index === 100
+      ? {
+          row,
+          errors: [
+            {
+              row,
+              field: 'email',
+              code: 'INVALID_FIELD',
+              message: 'Field value is invalid.',
+            },
+          ],
+        }
+      : {
+          row,
+          data: {
+            unitNumber: 'UNIT-' + (index + 1),
+            ownerName: 'Owner ' + (index + 1),
+          },
+          errors: [],
+        };
+  });
+  const preview = {
+    fileHash: 'large-preview',
+    summary: { total: 101, valid: 100, rejected: 1 },
+    errors: [],
+    rows,
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: 'operator-3',
+              email: 'operator3@example.com',
+              role: 'REGISTRATION_OPERATOR',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/registrations/import/preview'))
+        return { ok: true, status: 200, json: async () => ({ preview }) };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  const file = new File(['csv'], 'large.csv', { type: 'text/csv' });
+  Object.defineProperty(file, 'text', { value: async () => 'csv' });
+  const originalFormData = FormData;
+  vi.stubGlobal(
+    'FormData',
+    class {
+      get() {
+        return file;
+      }
+    },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  const fileInput = await screen.findByLabelText('CSV file');
+  fireEvent.change(fileInput, { target: { files: [file] } });
+  fireEvent.submit(fileInput.closest('form')!);
+  expect(
+    await screen.findByText('Showing entries 1–100 of 101.'),
+  ).toBeInTheDocument();
+  expect(screen.getByText('Row 2: UNIT-1 — Owner 1')).toBeInTheDocument();
+  expect(screen.queryByText('Row 102: rejected')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Next rows' }));
+  expect(
+    screen.getByText('Showing entries 101–101 of 101.'),
+  ).toBeInTheDocument();
+  expect(screen.getByText('Row 102: rejected')).toBeInTheDocument();
+  expect(screen.getByText(/^Row 102, email:/)).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Commit valid rows' }),
+  ).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Previous rows' }));
+  expect(screen.getByText('Showing entries 1–100 of 101.')).toBeInTheDocument();
   vi.stubGlobal('FormData', originalFormData);
 });

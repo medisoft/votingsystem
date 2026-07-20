@@ -5,6 +5,7 @@ import { createTranslator, detectLocale } from './i18n';
 // Empty by default so browsers use the same hostname that served the UI.
 // Vite proxies /api to the registration API during local/container development.
 const apiUrl = import.meta.env.VITE_API_URL || '';
+const IMPORT_PREVIEW_PAGE_SIZE = 100;
 type Role = 'SYSTEM_ADMIN' | 'REGISTRATION_OPERATOR' | 'AUDITOR';
 interface User {
   id: string;
@@ -233,6 +234,7 @@ function Dashboard({ user }: { user: User }) {
   const [importResult, setImportResult] = useState<CsvImportResult | null>(
     null,
   );
+  const [importPreviewPage, setImportPreviewPage] = useState(0);
   const importSelection = useRef(0);
   const users = useQuery({
     queryKey: ['users'],
@@ -287,6 +289,7 @@ function Dashboard({ user }: { user: User }) {
       if (selection !== importSelection.current) return;
       setImportSource(source);
       setImportPreview(preview);
+      setImportPreviewPage(0);
       setImportResult(null);
     },
     onError: (_error, { selection }) => {
@@ -309,6 +312,7 @@ function Dashboard({ user }: { user: User }) {
     onError: (error) => {
       if (error instanceof ApiError && error.body.preview) {
         setImportPreview(error.body.preview);
+        setImportPreviewPage(0);
         setImportResult(null);
       }
       setMessage(
@@ -325,6 +329,7 @@ function Dashboard({ user }: { user: User }) {
     if (!(file instanceof File) || !file.name) return;
     setImportSource(null);
     setImportPreview(null);
+    setImportPreviewPage(0);
     setImportResult(null);
     const selection = importSelection.current;
     const source = { fileName: file.name, csv: await file.text() };
@@ -463,6 +468,16 @@ function Dashboard({ user }: { user: User }) {
         body: { version: record.version },
       });
   };
+  const importPreviewStart = importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE;
+  const importPreviewRows =
+    importPreview?.rows.slice(
+      importPreviewStart,
+      importPreviewStart + IMPORT_PREVIEW_PAGE_SIZE,
+    ) ?? [];
+  const importPreviewPageCount = Math.max(
+    1,
+    Math.ceil((importPreview?.rows.length ?? 0) / IMPORT_PREVIEW_PAGE_SIZE),
+  );
   return (
     <main>
       <section className="wide">
@@ -595,6 +610,7 @@ function Dashboard({ user }: { user: User }) {
                     importSelection.current += 1;
                     setImportSource(null);
                     setImportPreview(null);
+                    setImportPreviewPage(0);
                     setImportResult(null);
                   }}
                 />
@@ -614,34 +630,79 @@ function Dashboard({ user }: { user: User }) {
                     rejected: importPreview.summary.rejected,
                   })}
                 </p>
-                {importPreview.rows.slice(0, 100).map((row) => (
-                  <p key={'preview-' + row.row}>
-                    {row.data
-                      ? t('importPreviewValidRow', {
-                          row: row.row,
-                          unit: row.data.unitNumber,
-                          owner: row.data.ownerName,
-                        })
-                      : t('importPreviewRejectedRow', { row: row.row })}
+                {importPreview.rows.length > 0 && (
+                  <p>
+                    {t('importPreviewRange', {
+                      from: importPreviewStart + 1,
+                      to: Math.min(
+                        importPreviewStart + IMPORT_PREVIEW_PAGE_SIZE,
+                        importPreview.rows.length,
+                      ),
+                      total: importPreview.rows.length,
+                    })}
+                  </p>
+                )}
+                {importPreview.errors.map((error, index) => (
+                  <p
+                    className="error"
+                    key={'file-' + error.row + '-' + error.field + '-' + index}
+                  >
+                    {t('importRowError', {
+                      row: error.row,
+                      field: error.field,
+                      message: localizeImportError(t, error),
+                    })}
                   </p>
                 ))}
-                {[
-                  ...importPreview.errors,
-                  ...importPreview.rows.flatMap((row) => row.errors),
-                ]
-                  .slice(0, 100)
-                  .map((error, index) => (
-                    <p
-                      className="error"
-                      key={error.row + '-' + error.field + '-' + index}
-                    >
-                      {t('importRowError', {
-                        row: error.row,
-                        field: error.field,
-                        message: localizeImportError(t, error),
-                      })}
+                {importPreviewRows.map((row) => (
+                  <div key={'preview-' + row.row}>
+                    <p>
+                      {row.data
+                        ? t('importPreviewValidRow', {
+                            row: row.row,
+                            unit: row.data.unitNumber,
+                            owner: row.data.ownerName,
+                          })
+                        : t('importPreviewRejectedRow', { row: row.row })}
                     </p>
-                  ))}
+                    {row.errors.map((error, index) => (
+                      <p
+                        className="error"
+                        key={error.row + '-' + error.field + '-' + index}
+                      >
+                        {t('importRowError', {
+                          row: error.row,
+                          field: error.field,
+                          message: localizeImportError(t, error),
+                        })}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+                {importPreviewPageCount > 1 && (
+                  <div>
+                    <button
+                      type="button"
+                      disabled={importPreviewPage === 0}
+                      onClick={() =>
+                        setImportPreviewPage((page) => Math.max(0, page - 1))
+                      }
+                    >
+                      {t('previousImportPreviewPage')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={importPreviewPage >= importPreviewPageCount - 1}
+                      onClick={() =>
+                        setImportPreviewPage((page) =>
+                          Math.min(importPreviewPageCount - 1, page + 1),
+                        )
+                      }
+                    >
+                      {t('nextImportPreviewPage')}
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   disabled={

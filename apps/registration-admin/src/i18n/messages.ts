@@ -432,6 +432,22 @@ export const messages = {
     en: 'Total: {total}. Valid: {valid}. Rejected: {rejected}.',
     es: 'Total: {total}. Válidas: {valid}. Rechazadas: {rejected}.',
   },
+  importPreviewRange: {
+    description:
+      'CSV preview pagination range with substituted first, last, and total entry numbers.',
+    en: 'Showing entries {from}–{to} of {total}.',
+    es: 'Mostrando registros {from}–{to} de {total}.',
+  },
+  previousImportPreviewPage: {
+    description: 'Button that shows the previous page of CSV preview rows.',
+    en: 'Previous rows',
+    es: 'Filas anteriores',
+  },
+  nextImportPreviewPage: {
+    description: 'Button that shows the next page of CSV preview rows.',
+    en: 'Next rows',
+    es: 'Filas siguientes',
+  },
   importPreviewValidRow: {
     description:
       'CSV preview line for a valid row with substituted row, unit, and owner.',
