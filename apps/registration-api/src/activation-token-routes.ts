@@ -3,6 +3,7 @@ import {
   ActorType,
   Prisma,
   RegistrationStatus,
+  VotingScopeStatus,
 } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -88,14 +89,20 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
           if (!registration || registration.deletedAt)
             return { error: 'REGISTRATION_NOT_FOUND' as const, status: 404 };
           const [scope] = await tx.$queryRaw<
-            Array<{ id: string; activationEndsAt: Date }>
+            Array<{
+              id: string;
+              status: VotingScopeStatus;
+              activationEndsAt: Date;
+            }>
           >(Prisma.sql`
-            SELECT "id", "activationEndsAt"
+            SELECT "id", "status", "activationEndsAt"
             FROM "VotingScope"
             WHERE "id" = ${params.data.scopeId}::uuid
             FOR UPDATE
           `);
           if (!scope) return { error: 'SCOPE_NOT_FOUND' as const, status: 404 };
+          if (scope.status !== VotingScopeStatus.ACTIVATION_OPEN)
+            return { error: 'ACTIVATION_SCOPE_NOT_OPEN' as const, status: 409 };
           const scopeEligibility = await tx.scopeEligibility.findUnique({
             where: {
               registrationRecordId_votingScopeId: {

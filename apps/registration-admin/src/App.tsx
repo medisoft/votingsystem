@@ -440,7 +440,6 @@ function Dashboard({ user }: { user: User }) {
   const generateActivation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    setGeneratedActivationToken(null);
     generateActivationTokenMutation.reset();
     setMessage('');
     generateActivationTokenMutation.mutate({

@@ -466,6 +466,7 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     version: 1,
   };
   let activeToken: Record<string, unknown> | null = null;
+  let generationFails = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input);
     if (path.endsWith('/api/v1/admin/me'))
@@ -515,6 +516,12 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
         '/api/v1/admin/registrations/record-1/scopes/scope-1/activation-token',
       )
     ) {
+      if (generationFails)
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ code: 'GENERATION_FAILED' }),
+        };
       activeToken = {
         id: 'token-1',
         votingScopeId: 'scope-1',
@@ -671,4 +678,15 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
       String(input).endsWith('/api/v1/admin/activation-tokens/token-1/revoke'),
     ),
   ).toHaveLength(revokeCalls);
+  generationFails = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Replace active token' }));
+  expect(
+    await screen.findByText(
+      'Activation token action failed: GENERATION_FAILED',
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('region', { name: 'One-time activation QR' }),
+  ).toBeInTheDocument();
+  expect(screen.getByText('opaque-activation-token')).toBeInTheDocument();
 });

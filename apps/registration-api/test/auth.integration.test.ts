@@ -965,6 +965,7 @@ INVALID-ONLY,
     const scope = await prisma.votingScope.create({
       data: {
         name: 'Token API scope',
+        status: 'ACTIVATION_OPEN',
         startsAt: new Date('2035-01-01T12:00:00Z'),
         endsAt: new Date('2035-01-01T18:00:00Z'),
         activationStartsAt: new Date('2035-01-01T10:00:00Z'),
@@ -981,6 +982,33 @@ INVALID-ONLY,
         votingWeight: new Prisma.Decimal('1.0000'),
       },
     });
+    const closedScope = await prisma.votingScope.create({
+      data: {
+        name: 'Closed token API scope',
+        status: 'CLOSED',
+        startsAt: new Date('2035-02-01T12:00:00Z'),
+        endsAt: new Date('2035-02-01T18:00:00Z'),
+        activationStartsAt: new Date('2035-02-01T10:00:00Z'),
+        activationEndsAt: new Date('2035-02-01T17:00:00Z'),
+        credentialExpiresAt: new Date('2035-02-02T00:00:00Z'),
+        issuerKeyVersion: '2035-02',
+      },
+    });
+    const closedScopeResponse = await app.inject({
+      method: 'POST',
+      url:
+        '/api/v1/admin/registrations/' +
+        registration.id +
+        '/scopes/' +
+        closedScope.id +
+        '/activation-token',
+      remoteAddress: '127.0.0.22',
+      headers: { cookie },
+      payload: {},
+    });
+    expect(closedScopeResponse.statusCode).toBe(409);
+    expect(closedScopeResponse.json().code).toBe('ACTIVATION_SCOPE_NOT_OPEN');
+
     const generateUrl =
       '/api/v1/admin/registrations/' +
       registration.id +
@@ -1151,7 +1179,7 @@ INVALID-ONLY,
       '/api/v1/admin/registrations/00000000-0000-4000-8000-000000000001/scopes/' +
       scope.id +
       '/activation-token';
-    for (let attempt = 0; attempt < 10; attempt += 1)
+    for (let attempt = 0; attempt < 9; attempt += 1)
       expect(
         (
           await app.inject({

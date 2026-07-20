@@ -1073,7 +1073,7 @@ Stage 6.1 foundation implementation contract:
 * Only a SHA-256 token hash and an eight-character support prefix are persisted.
 * PostgreSQL enforces token formats, expiration ordering, lifecycle timestamp consistency, and one ACTIVE token per registration record and voting scope.
 * Stage 6.2 adds rate-limited administrative generation/replacement and revocation endpoints.
-* Generation requires an active, globally eligible registration without an ineligible scope override and an activation window that has not ended.
+* Generation requires an ACTIVATION_OPEN scope, an active and globally eligible registration without an ineligible scope override, and an activation window that has not ended.
 * Token expiration defaults to the scope activation end and cannot exceed it.
 * Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token.
 * The raw token appears only in the successful generation response; later responses, storage, logs, and audit metadata expose only non-secret lifecycle fields.
