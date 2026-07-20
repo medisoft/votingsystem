@@ -591,30 +591,33 @@ IMPORT-LOCK-WAIT,Waiting owner
     const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
     let completed = false;
     let pending!: Promise<Awaited<ReturnType<typeof app.inject>>>;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
-      );
-      pending = app
-        .inject({
-          method: 'POST',
-          url: '/api/v1/admin/registrations',
-          headers: { cookie },
-          payload: {
-            unitNumber: 'LOCK-501',
-            ownerName: 'Lock test',
-            votingWeight: '1.0000',
-          },
-        })
-        .then((response) => {
-          completed = true;
-          return response;
-        });
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(completed).toBe(false);
-    });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+        );
+        pending = app
+          .inject({
+            method: 'POST',
+            url: '/api/v1/admin/registrations',
+            headers: { cookie },
+            payload: {
+              unitNumber: 'LOCK-501',
+              ownerName: 'Lock test',
+              votingWeight: '1.0000',
+            },
+          })
+          .then((response) => {
+            completed = true;
+            return response;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 5_250));
+        expect(completed).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
     expect((await pending).statusCode).toBe(201);
-  });
+  }, 12_000);
   it('serializes unit-number updates with imports', async () => {
     const login = await app.inject({
       method: 'POST',
@@ -635,34 +638,37 @@ IMPORT-LOCK-WAIT,Waiting owner
     });
     let completed = false;
     let pending!: Promise<Awaited<ReturnType<typeof app.inject>>>;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
-      );
-      pending = app
-        .inject({
-          method: 'PATCH',
-          url: `/api/v1/admin/registrations/${record.id}`,
-          headers: { cookie },
-          payload: {
-            unitNumber: 'patch-lock-target',
-            version: record.version,
-          },
-        })
-        .then((response) => {
-          completed = true;
-          return response;
-        });
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(completed).toBe(false);
-    });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+        );
+        pending = app
+          .inject({
+            method: 'PATCH',
+            url: `/api/v1/admin/registrations/${record.id}`,
+            headers: { cookie },
+            payload: {
+              unitNumber: 'patch-lock-target',
+              version: record.version,
+            },
+          })
+          .then((response) => {
+            completed = true;
+            return response;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 5_250));
+        expect(completed).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
     expect((await pending).statusCode).toBe(200);
     expect(
       await prisma.registrationRecord.findUnique({
         where: { unitNumber: 'PATCH-LOCK-TARGET' },
       }),
     ).not.toBeNull();
-  });
+  }, 12_000);
   it('returns structured empty and zero-valid import errors and rejects canonical manual duplicates', async () => {
     const login = await app.inject({
       method: 'POST',

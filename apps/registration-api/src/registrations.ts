@@ -8,7 +8,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
 import { canonicalUnitNumber } from './csv-import.js';
-import { REGISTRATION_WRITE_LOCK } from './imports.js';
+import {
+  IMPORT_TRANSACTION_TIMEOUT_MS,
+  REGISTRATION_WRITE_LOCK,
+} from './imports.js';
 
 const uuid = z.string().uuid();
 const weight = z
@@ -139,21 +142,24 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           .send({ code: 'INVALID_REGISTRATION', issues: parsed.error.issues });
       let record;
       try {
-        record = await app.prisma.$transaction(async (tx) => {
-          await tx.$executeRaw(
-            Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
-          );
-          const existing = await tx.$queryRaw<Array<{ id: string }>>(
-            Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE UPPER("unitNumber") = ${parsed.data.unitNumber} LIMIT 1`,
-          );
-          if (existing.length) return null;
-          return tx.registrationRecord.create({
-            data: {
-              ...clean(parsed.data),
-              votingWeight: new Prisma.Decimal(parsed.data.votingWeight),
-            } as Prisma.RegistrationRecordCreateInput,
-          });
-        });
+        record = await app.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw(
+              Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+            );
+            const existing = await tx.$queryRaw<Array<{ id: string }>>(
+              Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE "unitNumber" = ${parsed.data.unitNumber} LIMIT 1`,
+            );
+            if (existing.length) return null;
+            return tx.registrationRecord.create({
+              data: {
+                ...clean(parsed.data),
+                votingWeight: new Prisma.Decimal(parsed.data.votingWeight),
+              } as Prisma.RegistrationRecordCreateInput,
+            });
+          },
+          { timeout: IMPORT_TRANSACTION_TIMEOUT_MS },
+        );
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -189,24 +195,27 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
         changes.votingWeight = new Prisma.Decimal(raw.votingWeight);
       let result;
       try {
-        result = await app.prisma.$transaction(async (tx) => {
-          if (raw.unitNumber) {
-            await tx.$executeRaw(
-              Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
-            );
-            const existing = await tx.$queryRaw<Array<{ id: string }>>(
-              Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE UPPER("unitNumber") = ${raw.unitNumber} AND "id" <> ${p.data.id}::uuid LIMIT 1`,
-            );
-            if (existing.length) return null;
-          }
-          return tx.registrationRecord.updateMany({
-            where: { id: p.data.id, version, deletedAt: null },
-            data: {
-              ...changes,
-              version: { increment: 1 },
-            } as Prisma.RegistrationRecordUpdateManyMutationInput,
-          });
-        });
+        result = await app.prisma.$transaction(
+          async (tx) => {
+            if (raw.unitNumber) {
+              await tx.$executeRaw(
+                Prisma.sql`SELECT pg_advisory_xact_lock(${REGISTRATION_WRITE_LOCK})`,
+              );
+              const existing = await tx.$queryRaw<Array<{ id: string }>>(
+                Prisma.sql`SELECT "id" FROM "RegistrationRecord" WHERE "unitNumber" = ${raw.unitNumber} AND "id" <> ${p.data.id}::uuid LIMIT 1`,
+              );
+              if (existing.length) return null;
+            }
+            return tx.registrationRecord.updateMany({
+              where: { id: p.data.id, version, deletedAt: null },
+              data: {
+                ...changes,
+                version: { increment: 1 },
+              } as Prisma.RegistrationRecordUpdateManyMutationInput,
+            });
+          },
+          { timeout: IMPORT_TRANSACTION_TIMEOUT_MS },
+        );
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
