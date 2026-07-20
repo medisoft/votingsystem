@@ -57,6 +57,19 @@ No hidden algorithms.
 
 ---
 
+## Reuse Proven Components
+
+Use mature, actively maintained libraries for established formats, protocols,
+security mechanisms, and general infrastructure whenever they satisfy the
+project's requirements. Check compatibility, licensing, maintenance status,
+security posture, and correctness before adoption.
+
+Do not spend project time recreating well-supported general-purpose components.
+A custom implementation requires a documented reason why available libraries
+are unsuitable and focused tests for the behavior that must be maintained.
+
+---
+
 ## Privacy by Design
 
 The platform separates identity from voting.
@@ -386,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–4 are complete. Stage 4.1 adds English and Spanish localization, and Stage 4.2 isolates destructive integration tests in a dedicated ephemeral database before CSV import work begins in Stage 5.
+Registration Service Stages 1–5 are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports.
 
 The MVP will prioritize:
 

@@ -54,6 +54,19 @@ Use the following stack unless there is a strong technical reason to change it:
 
 Do not implement the voter-facing voting interface in this project.
 
+## Reuse of Existing Libraries
+
+Prefer an existing, well-supported library over a custom implementation when it
+already solves the required problem. Before adopting it, verify that it is
+actively maintained, compatible with the project stack, appropriately licensed,
+and suitable for the security and correctness requirements.
+
+Custom implementations of established infrastructure or formats—such as
+parsers, cryptographic primitives, protocol clients, and generic utilities—must
+be used only when no suitable maintained library exists or a documented project
+requirement makes the library unsuitable. Record that justification and add
+tests for the behavior the project must maintain.
+
 ---
 
 # 3. Security Model
@@ -663,7 +676,9 @@ GET    /api/v1/admin/registrations
 POST   /api/v1/admin/registrations
 GET    /api/v1/admin/registrations/:id
 PATCH  /api/v1/admin/registrations/:id
+POST   /api/v1/admin/registrations/import/preview
 POST   /api/v1/admin/registrations/import
+GET    /api/v1/admin/registration-imports/:id/errors.csv
 ```
 
 ```text
@@ -1014,6 +1029,17 @@ Acceptance criteria:
 * Invalid rows identify exact row and field errors.
 * Duplicate unit identifiers are handled deterministically.
 * Importing the same file twice does not silently create duplicates.
+
+Implementation contract:
+
+* Preview and commit accept the original CSV text and file name; commit always revalidates server-side.
+* Files are limited to 2 MiB and 5,000 data rows.
+* Supported headers are `unit_number`, `owner_name`, `representative_name`, `email`, `phone`, `voting_weight`, `eligible`, `status`, and `notes`.
+* `unit_number` and `owner_name` are required; optional values receive documented defaults.
+* Unit identifiers are normalized to uppercase, and the database enforces uppercase unique storage.
+* Imports are serialized, existing units are rejected, and later duplicate units in one file are rejected deterministically.
+* A SHA-256 content hash prevents the same file content from being committed twice, even under a different file name.
+* Error reports contain row, field, code, and localized-displayable error type without copying source field values.
 
 ---
 

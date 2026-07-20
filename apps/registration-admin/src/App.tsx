@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createTranslator, detectLocale } from './i18n';
 
 // Empty by default so browsers use the same hostname that served the UI.
@@ -51,6 +51,39 @@ interface Registration {
     votingScope: { id: string; name: string; status: ScopeStatus };
   }>;
 }
+interface CsvImportPreview {
+  fileHash: string;
+  summary: { total: number; valid: number; rejected: number };
+  errors: Array<{ row: number; field: string; code: string; message: string }>;
+  rows: Array<{
+    row: number;
+    data?: { unitNumber: string; ownerName: string };
+    errors: Array<{
+      row: number;
+      field: string;
+      code: string;
+      message: string;
+    }>;
+  }>;
+}
+interface CsvImportResult {
+  import: {
+    id: string;
+    totalRows: number;
+    importedRows: number;
+    rejectedRows: number;
+  };
+  errorReportUrl: string | null;
+}
+interface ApiErrorBody {
+  code?: string;
+  preview?: CsvImportPreview;
+}
+class ApiError extends Error {
+  constructor(readonly body: ApiErrorBody) {
+    super(body.code ?? 'REQUEST_FAILED');
+  }
+}
 const nextStatus: Partial<Record<ScopeStatus, ScopeStatus>> = {
   DRAFT: 'REGISTRATION_OPEN',
   REGISTRATION_OPEN: 'ACTIVATION_OPEN',
@@ -83,6 +116,27 @@ const roleMessage: Record<Role, Parameters<Translator>[0]> = {
   REGISTRATION_OPERATOR: 'roleRegistrationOperator',
   AUDITOR: 'roleAuditor',
 };
+const importErrorMessage = {
+  FILE_TOO_LARGE: 'importErrorFileTooLarge',
+  INVALID_CSV: 'importErrorInvalidCsv',
+  EMPTY_FILE: 'importErrorEmptyFile',
+  MISSING_HEADER: 'importErrorMissingHeader',
+  EMPTY_HEADER: 'importErrorEmptyHeader',
+  UNKNOWN_HEADER: 'importErrorUnknownHeader',
+  DUPLICATE_HEADER: 'importErrorDuplicateHeader',
+  TOO_MANY_ROWS: 'importErrorTooManyRows',
+  COLUMN_COUNT: 'importErrorColumnCount',
+  INVALID_FIELD: 'importErrorInvalidField',
+  DUPLICATE_IN_FILE: 'importErrorDuplicateInFile',
+  DUPLICATE_EXISTING: 'importErrorDuplicateExisting',
+} as const;
+function localizeImportError(
+  t: Translator,
+  error: { code: string; message: string },
+) {
+  const key = importErrorMessage[error.code as keyof typeof importErrorMessage];
+  return key ? t(key) : error.message;
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -95,12 +149,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   });
   if (!response.ok)
-    throw new Error(
-      (
-        (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as {
-          code?: string;
-        }
-      ).code ?? 'REQUEST_FAILED',
+    throw new ApiError(
+      (await response.json().catch(() => ({
+        code: 'REQUEST_FAILED',
+      }))) as ApiErrorBody,
     );
   return response.status === 204
     ? (undefined as T)
@@ -171,6 +223,17 @@ function Dashboard({ user }: { user: User }) {
   const { locale, t } = useI18n();
   const client = useQueryClient();
   const [message, setMessage] = useState('');
+  const [importSource, setImportSource] = useState<{
+    fileName: string;
+    csv: string;
+  } | null>(null);
+  const [importPreview, setImportPreview] = useState<CsvImportPreview | null>(
+    null,
+  );
+  const [importResult, setImportResult] = useState<CsvImportResult | null>(
+    null,
+  );
+  const importSelection = useRef(0);
   const users = useQuery({
     queryKey: ['users'],
     queryFn: () => api<{ users: User[] }>('/api/v1/admin/users'),
@@ -209,6 +272,65 @@ function Dashboard({ user }: { user: User }) {
     onError: (error) =>
       setMessage(t('recordSaveFailed', { error: error.message })),
   });
+  const previewImport = useMutation({
+    mutationFn: ({
+      source,
+    }: {
+      source: { fileName: string; csv: string };
+      selection: number;
+    }) =>
+      api<{ preview: CsvImportPreview }>(
+        '/api/v1/admin/registrations/import/preview',
+        { method: 'POST', body: JSON.stringify(source) },
+      ),
+    onSuccess: ({ preview }, { source, selection }) => {
+      if (selection !== importSelection.current) return;
+      setImportSource(source);
+      setImportPreview(preview);
+      setImportResult(null);
+    },
+    onError: (_error, { selection }) => {
+      if (selection === importSelection.current)
+        setMessage(t('importPreviewFailed'));
+    },
+  });
+  const commitImport = useMutation({
+    mutationFn: (source: { fileName: string; csv: string }) =>
+      api<CsvImportResult>('/api/v1/admin/registrations/import', {
+        method: 'POST',
+        body: JSON.stringify(source),
+      }),
+    onSuccess: (result) => {
+      setImportSource(null);
+      setImportResult(result);
+      setMessage(t('importCommitted'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.body.preview) {
+        setImportPreview(error.body.preview);
+        setImportResult(null);
+      }
+      setMessage(
+        error.message === 'IMPORT_ALREADY_COMMITTED'
+          ? t('importAlreadyCommitted')
+          : t('importCommitFailed'),
+      );
+    },
+  });
+  const previewCsv = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage('');
+    const file = new FormData(event.currentTarget).get('csvFile');
+    if (!(file instanceof File) || !file.name) return;
+    setImportSource(null);
+    setImportPreview(null);
+    setImportResult(null);
+    const selection = importSelection.current;
+    const source = { fileName: file.name, csv: await file.text() };
+    if (selection !== importSelection.current) return;
+    previewImport.mutate({ source, selection });
+  };
   const scopeMutation = useMutation({
     mutationFn: ({
       path,
@@ -356,6 +478,7 @@ function Dashboard({ user }: { user: User }) {
             {t('signOut')}
           </button>
         </header>
+        {message && <p role="status">{message}</p>}
         <h2>{t('voterRecords')}</h2>
         {user.role === 'AUDITOR' ? (
           <p>{t('auditorNotice')}</p>
@@ -458,6 +581,97 @@ function Dashboard({ user }: { user: User }) {
                 {t('createRecord')}
               </button>
             </form>
+            <h2>{t('csvImport')}</h2>
+            <p>{t('csvImportHelp')}</p>
+            <form onSubmit={(event) => void previewCsv(event)}>
+              <label>
+                {t('csvFile')}
+                <input
+                  name="csvFile"
+                  type="file"
+                  accept=".csv,text/csv"
+                  required
+                  onChange={() => {
+                    importSelection.current += 1;
+                    setImportSource(null);
+                    setImportPreview(null);
+                    setImportResult(null);
+                  }}
+                />
+              </label>
+              <button disabled={previewImport.isPending}>
+                {previewImport.isPending
+                  ? t('previewingImport')
+                  : t('previewImport')}
+              </button>
+            </form>
+            {importPreview && (
+              <div>
+                <p role="status">
+                  {t('importSummary', {
+                    total: importPreview.summary.total,
+                    valid: importPreview.summary.valid,
+                    rejected: importPreview.summary.rejected,
+                  })}
+                </p>
+                {importPreview.rows.slice(0, 100).map((row) => (
+                  <p key={'preview-' + row.row}>
+                    {row.data
+                      ? t('importPreviewValidRow', {
+                          row: row.row,
+                          unit: row.data.unitNumber,
+                          owner: row.data.ownerName,
+                        })
+                      : t('importPreviewRejectedRow', { row: row.row })}
+                  </p>
+                ))}
+                {[
+                  ...importPreview.errors,
+                  ...importPreview.rows.flatMap((row) => row.errors),
+                ]
+                  .slice(0, 100)
+                  .map((error, index) => (
+                    <p
+                      className="error"
+                      key={error.row + '-' + error.field + '-' + index}
+                    >
+                      {t('importRowError', {
+                        row: error.row,
+                        field: error.field,
+                        message: localizeImportError(t, error),
+                      })}
+                    </p>
+                  ))}
+                <button
+                  type="button"
+                  disabled={
+                    !importSource ||
+                    !importPreview.summary.valid ||
+                    commitImport.isPending
+                  }
+                  onClick={() =>
+                    importSource && commitImport.mutate(importSource)
+                  }
+                >
+                  {commitImport.isPending
+                    ? t('committingImport')
+                    : t('commitImport')}
+                </button>
+              </div>
+            )}
+            {importResult && (
+              <p role="status">
+                {t('importResult', {
+                  imported: importResult.import.importedRows,
+                  rejected: importResult.import.rejectedRows,
+                })}{' '}
+                {importResult.errorReportUrl && (
+                  <a href={apiUrl + importResult.errorReportUrl}>
+                    {t('downloadErrorReport')}
+                  </a>
+                )}
+              </p>
+            )}
             <h2>{t('scopeEligibility')}</h2>
             <form onSubmit={setEligibility}>
               <label>
@@ -652,7 +866,6 @@ function Dashboard({ user }: { user: User }) {
                   <option value="SYSTEM_ADMIN">{t('roleSystemAdmin')}</option>
                 </select>
               </label>
-              {message && <p role="status">{message}</p>}
               <button disabled={create.isPending}>{t('createUser')}</button>
             </form>
           </>

@@ -13,6 +13,7 @@ describe('internationalization', () => {
     expect(createTranslator('en')('pageTitle')).toBe(
       'Voting system — Registration',
     );
+    expect(createTranslator('en')('csvImport')).toBe('Import CSV');
   });
 
   it('returns Spanish messages when Spanish is selected', () => {
