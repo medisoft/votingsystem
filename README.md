@@ -92,5 +92,11 @@ Invalid rows show their exact CSV row and field. Valid rows can still be committ
 
 Known limitations: imports create new registration records only; updating existing units and assigning per-scope eligibility through CSV are deferred. Error explanations are localized in the UI, while error-report codes remain stable English API identifiers.
 
+## Stage 6.1 activation-token foundation
+
+Activation tokens use 32 bytes (256 bits) of cryptographically secure randomness encoded as URL-safe opaque strings. Only SHA-256 hashes and an eight-character support prefix are designed for persistence; raw tokens are returned only by future generation workflows.
+
+The `ActivationToken` model records registration, voting scope, generator, expiration, delivery, redemption, and revocation lifecycle data. PostgreSQL enforces hash and prefix formats, expiration ordering, lifecycle timestamp consistency, and at most one ACTIVE token per registration and voting scope. Administrative generation and revocation endpoints, one-time display, and QR rendering belong to the next Stage 6 slice.
+
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.

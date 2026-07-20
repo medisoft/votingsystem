@@ -9,3 +9,10 @@
   the requirements.
 - When adding a new dependency, explain why it was selected and verify its
   maintenance status, license, security history, and compatibility.
+
+## Code generation
+
+- When creating new functionallity, if it applies, then show me manual testing steps
+  in addition of the automated tests.
+- Split long stages into smaller steps grouped by functionallity to make them more
+  manegable

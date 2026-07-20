@@ -399,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–5 are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports.
+Registration Service Stages 1–5 and the Stage 6.1 activation-token foundation are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports. Stage 6.1 adds hash-only opaque-token cryptography and database-enforced token lifecycle invariants; administrative generation, revocation endpoints, and QR delivery remain pending.
 
 The MVP will prioritize:
 

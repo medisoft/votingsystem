@@ -1,7 +1,8 @@
-import { AdminRole, Prisma } from '@prisma/client';
+import { ActivationTokenStatus, AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { generateActivationToken } from '../src/activation-tokens.js';
 import {
   IMPORT_TRANSACTION_TIMEOUT_MS,
   REGISTRATION_WRITE_LOCK,
@@ -27,6 +28,7 @@ const suite = enabled ? describe : describe.skip;
 suite('administrative authentication', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   beforeAll(async () => {
+    await prisma.activationToken.deleteMany();
     await prisma.registrationImport.deleteMany();
     await prisma.auditEvent.deleteMany();
     await prisma.scopeEligibility.deleteMany();
@@ -55,6 +57,125 @@ suite('administrative authentication', () => {
     app = await buildApp(config);
   });
   afterAll(async () => app.close());
+  it('enforces activation token storage and lifecycle invariants', async () => {
+    const administrator = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+    });
+    const registration = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'TOKEN-FOUNDATION-1',
+        ownerName: 'Token foundation owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const scope = await prisma.votingScope.create({
+      data: {
+        name: 'Token foundation scope',
+        startsAt: new Date('2030-01-01T12:00:00Z'),
+        endsAt: new Date('2030-01-01T18:00:00Z'),
+        activationStartsAt: new Date('2030-01-01T10:00:00Z'),
+        activationEndsAt: new Date('2030-01-01T17:00:00Z'),
+        credentialExpiresAt: new Date('2030-01-02T00:00:00Z'),
+        issuerKeyVersion: '2030-01',
+      },
+    });
+    const firstSecret = generateActivationToken();
+    const generatedAt = new Date('2030-01-01T09:00:00Z');
+    const common = {
+      registrationRecordId: registration.id,
+      votingScopeId: scope.id,
+      expiresAt: new Date('2030-01-01T17:00:00Z'),
+      generatedBy: administrator.id,
+      generatedAt,
+    };
+    const first = await prisma.activationToken.create({
+      data: {
+        ...common,
+        tokenHash: firstSecret.tokenHash,
+        tokenPrefixForSupport: firstSecret.tokenPrefixForSupport,
+      },
+    });
+    expect(JSON.stringify(first)).not.toContain(firstSecret.rawToken);
+    expect(first.tokenHash).toBe(firstSecret.tokenHash);
+
+    const duplicateSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          tokenHash: duplicateSecret.tokenHash,
+          tokenPrefixForSupport: duplicateSecret.tokenPrefixForSupport,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+
+    await prisma.activationToken.update({
+      where: { id: first.id },
+      data: {
+        status: ActivationTokenStatus.REVOKED,
+        revokedAt: new Date('2030-01-01T09:05:00Z'),
+        revocationReason: 'Replacement generated',
+      },
+    });
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          tokenHash: duplicateSecret.tokenHash,
+          tokenPrefixForSupport: duplicateSecret.tokenPrefixForSupport,
+        },
+      }),
+    ).resolves.toMatchObject({ status: ActivationTokenStatus.ACTIVE });
+
+    const invalidRegistration = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'TOKEN-FOUNDATION-INVALID',
+        ownerName: 'Invalid token owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const invalidSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: invalidSecret.tokenHash,
+          tokenPrefixForSupport: invalidSecret.tokenPrefixForSupport,
+          expiresAt: generatedAt,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: invalidSecret.tokenHash,
+          tokenPrefixForSupport: invalidSecret.tokenPrefixForSupport,
+          status: ActivationTokenStatus.REDEEMED,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: 'not-a-valid-hash',
+          tokenPrefixForSupport: 'Support1',
+        },
+      }),
+    ).rejects.toThrow();
+
+    await prisma.votingScope.delete({ where: { id: scope.id } });
+    await prisma.registrationRecord.deleteMany({
+      where: { id: { in: [registration.id, invalidRegistration.id] } },
+    });
+  });
+
   it('logs in, protects routes, audits access, and logs out', async () => {
     expect((await app.inject({ url: '/api/v1/admin/me' })).statusCode).toBe(
       401,

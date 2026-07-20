@@ -49,6 +49,7 @@ model VotingScope {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   eligibilities        ScopeEligibility[]
+  activationTokens     ActivationToken[]
 
   @@index([status])
   @@index([startsAt, endsAt])
@@ -57,6 +58,13 @@ model VotingScope {
 enum RegistrationStatus {
   ACTIVE
   INACTIVE
+}
+
+enum ActivationTokenStatus {
+  ACTIVE
+  REDEEMED
+  EXPIRED
+  REVOKED
 }
 
 model RegistrationRecord {
@@ -76,6 +84,7 @@ model RegistrationRecord {
   updatedAt          DateTime           @updatedAt
   deletedAt          DateTime?
   scopeEligibilities ScopeEligibility[]
+  activationTokens   ActivationToken[]
 
   @@index([ownerName])
   @@index([email])
@@ -97,17 +106,43 @@ model ScopeEligibility {
   @@index([votingScopeId, eligible])
 }
 
+model ActivationToken {
+  id                    String                @id @default(uuid()) @db.Uuid
+  registrationRecordId  String                @db.Uuid
+  votingScopeId         String                @db.Uuid
+  tokenHash             String                @unique @db.Char(64)
+  tokenPrefixForSupport String                @db.VarChar(8)
+  status                ActivationTokenStatus @default(ACTIVE)
+  expiresAt             DateTime
+  generatedBy           String                @db.Uuid
+  generatedAt           DateTime              @default(now())
+  deliveryMethod        String?
+  deliveredAt           DateTime?
+  redeemedAt            DateTime?
+  revokedAt             DateTime?
+  revocationReason      String?
+  registrationRecord    RegistrationRecord    @relation(fields: [registrationRecordId], references: [id], onDelete: Cascade)
+  votingScope           VotingScope           @relation(fields: [votingScopeId], references: [id], onDelete: Cascade)
+  generator             AdminUser             @relation(fields: [generatedBy], references: [id], onDelete: Restrict)
+
+  @@index([registrationRecordId, votingScopeId, status])
+  @@index([votingScopeId, status])
+  @@index([expiresAt, status])
+  @@index([generatedBy, generatedAt])
+}
+
 model AdminUser {
-  id               String         @id @default(uuid()) @db.Uuid
-  email            String         @unique
+  id               String            @id @default(uuid()) @db.Uuid
+  email            String            @unique
   passwordHash     String
   role             AdminRole
-  status           AdminStatus    @default(ACTIVE)
-  failedLoginCount Int            @default(0)
+  status           AdminStatus       @default(ACTIVE)
+  failedLoginCount Int               @default(0)
   lockedUntil      DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   sessions         AdminSession[]
+  generatedTokens  ActivationToken[]
 
   @@index([status])
 }

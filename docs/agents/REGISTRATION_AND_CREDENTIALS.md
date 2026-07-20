@@ -1066,6 +1066,13 @@ Acceptance criteria:
 * QR codes contain no personal information.
 * Token endpoints are rate limited.
 
+Stage 6.1 foundation implementation contract:
+
+* Tokens contain 32 bytes (256 bits) of randomness from Node.js cryptography APIs and use base64url encoding.
+* Only a SHA-256 token hash and an eight-character support prefix are persisted.
+* PostgreSQL enforces token formats, expiration ordering, lifecycle timestamp consistency, and one ACTIVE token per registration record and voting scope.
+* Administrative generation and revocation endpoints, one-time display, and QR rendering remain part of the next Stage 6 slice.
+
 ---
 
 ## Stage 7 — Prototype Credential Issuance
