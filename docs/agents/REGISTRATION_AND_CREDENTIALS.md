@@ -1081,7 +1081,7 @@ Stage 6.1 foundation implementation contract:
 * Stage 6.3 generates QR PNG data locally in the administrator browser from the one-time raw-token response; the QR payload is the opaque token only and contains no personal information.
 * The administrative UI supports generation, atomic replacement, active-token status, revocation, printable instructions, and one-time PNG download.
 * Secure-delivery confirmation records the delivery timestamp and method, creates an audit event, and permanently hides the raw token and QR from the UI.
-* QR generation failure revokes the newly created unusable token.
+* If local QR rendering fails, the valid replacement remains active and the UI preserves the one-time raw-token fallback instead of leaving the registration without an active token.
 * The qrcode dependency evaluation, license, security audit, and compatibility evidence are documented in README.md.
 * Stage 6.4 generates a localized, single-page PDF in the administrator browser with the anonymous QR, fallback token, instructions, warning, and non-secret support prefix. It includes no owner, unit, email, or other personal data, and PDF download does not confirm delivery.
 * The jsPDF dependency evaluation, license, security audit, compatibility, and release evidence are documented in README.md.

@@ -11,7 +11,10 @@ interface AuditInput {
   metadata?: Prisma.InputJsonObject;
 }
 
-export async function appendAudit(prisma: PrismaClient, input: AuditInput) {
+export async function appendAudit(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  input: AuditInput,
+) {
   const previous = await prisma.auditEvent.findFirst({
     orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
   });

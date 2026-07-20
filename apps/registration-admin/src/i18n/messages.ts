@@ -548,6 +548,18 @@ export const messages = {
     en: 'Activation token generated. Deliver it securely before leaving this screen.',
     es: 'Token de activación generado. Entrégalo de forma segura antes de salir de esta pantalla.',
   },
+  activationQrGenerationFailed: {
+    description:
+      'Warning shown when a valid activation token was generated but its QR image could not be rendered locally.',
+    en: 'The token was generated, but the QR could not be created. Securely deliver the one-time token below or generate a replacement.',
+    es: 'El token fue generado, pero no se pudo crear el QR. Entrega de forma segura el token de una sola visualización mostrado abajo o genera un reemplazo.',
+  },
+  activationQrFallback: {
+    description:
+      'Warning inside the one-time delivery card when only the raw activation token fallback is available.',
+    en: 'QR unavailable. Use the one-time token below as the secure fallback.',
+    es: 'QR no disponible. Usa el token de una sola visualización mostrado abajo como alternativa segura.',
+  },
   activationTokenDelivered: {
     description:
       'Success status after confirming secure activation-token delivery.',
@@ -607,6 +619,12 @@ export const messages = {
       'CSV preview pagination range with substituted first, last, and total entry numbers.',
     en: 'Showing entries {from}–{to} of {total}.',
     es: 'Mostrando registros {from}–{to} de {total}.',
+  },
+  importFileErrorsTruncated: {
+    description:
+      'Notice that only a bounded number of file-level CSV errors are displayed, with the displayed count substituted.',
+    en: 'Showing the first {count} file-level errors. Correct them and preview the file again to continue.',
+    es: 'Se muestran los primeros {count} errores del archivo. Corrígelos y vuelve a previsualizar el archivo para continuar.',
   },
   previousImportPreviewPage: {
     description: 'Button that shows the previous page of CSV preview rows.',

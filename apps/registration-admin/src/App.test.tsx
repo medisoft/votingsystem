@@ -95,12 +95,11 @@ it('does not send a JSON content type for bodyless logout', async () => {
     },
   );
   vi.stubGlobal('fetch', fetchMock);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>,
   );
@@ -161,12 +160,11 @@ it('shows operational failures to registration operators', async () => {
     },
   );
   vi.stubGlobal('fetch', fetchMock);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>,
   );
@@ -369,7 +367,12 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
   const preview = {
     fileHash: 'large-preview',
     summary: { total: 101, valid: 100, rejected: 1 },
-    errors: [],
+    errors: Array.from({ length: 101 }, (_, index) => ({
+      row: 1,
+      field: 'header-' + index,
+      code: 'UNKNOWN_HEADER',
+      message: 'The column is not supported.',
+    })),
     rows,
   };
   vi.stubGlobal(
@@ -426,6 +429,12 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
     await screen.findByText('Showing entries 1–100 of 101.'),
   ).toBeInTheDocument();
   expect(screen.getByText('Row 2: UNIT-1 — Owner 1')).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Showing the first 100 file-level errors. Correct them and preview the file again to continue.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getAllByText(/The column is not supported./)).toHaveLength(100);
   expect(screen.queryByText('Row 102: rejected')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Next rows' }));
   expect(
@@ -549,12 +558,11 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     return { ok: true, status: 200, json: async () => ({}) };
   });
   vi.stubGlobal('fetch', fetchMock);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>,
   );
@@ -562,6 +570,8 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
   fireEvent.click(
     await screen.findByRole('button', { name: 'Generate activation token' }),
   );
+  expect(document.querySelector('select[name="tokenRecordId"]')).toBeDisabled();
+  expect(document.querySelector('select[name="tokenScopeId"]')).toBeDisabled();
   const delivery = await screen.findByRole('region', {
     name: 'One-time activation QR',
   });
@@ -574,6 +584,14 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     expect.objectContaining({ type: 'image/png' }),
   );
   expect(screen.getByText('opaque-activation-token')).toBeInTheDocument();
+  expect(
+    JSON.stringify(
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((mutation) => mutation.state.data),
+    ),
+  ).not.toContain('opaque-activation-token');
   expect(
     screen.getByRole('link', { name: 'Download QR as PNG' }),
   ).toHaveAttribute('download', 'activation-abcdefgh.png');
@@ -627,4 +645,30 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     expect.stringContaining('/api/v1/admin/activation-tokens/token-1/revoke'),
     expect.objectContaining({ method: 'POST' }),
   );
+  const revokeCalls = fetchMock.mock.calls.filter(([input]) =>
+    String(input).endsWith('/api/v1/admin/activation-tokens/token-1/revoke'),
+  ).length;
+  vi.mocked(QRCode.toDataURL).mockRejectedValueOnce(new Error('canvas failed'));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Generate activation token' }),
+  );
+  expect(
+    await screen.findByText(
+      'The token was generated, but the QR could not be created. Securely deliver the one-time token below or generate a replacement.',
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'QR unavailable. Use the one-time token below as the secure fallback.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText('opaque-activation-token')).toBeInTheDocument();
+  expect(
+    screen.queryByAltText('Activation token QR code'),
+  ).not.toBeInTheDocument();
+  expect(
+    fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith('/api/v1/admin/activation-tokens/token-1/revoke'),
+    ),
+  ).toHaveLength(revokeCalls);
 });

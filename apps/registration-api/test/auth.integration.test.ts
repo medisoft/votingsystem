@@ -150,6 +150,48 @@ suite('administrative authentication', () => {
       }),
     ).rejects.toThrow();
 
+    const earlyRedemptionSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: earlyRedemptionSecret.tokenHash,
+          tokenPrefixForSupport: earlyRedemptionSecret.tokenPrefixForSupport,
+          status: ActivationTokenStatus.REDEEMED,
+          redeemedAt: new Date('2030-01-01T08:59:59Z'),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const lateRevocationSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: lateRevocationSecret.tokenHash,
+          tokenPrefixForSupport: lateRevocationSecret.tokenPrefixForSupport,
+          status: ActivationTokenStatus.REVOKED,
+          revokedAt: new Date('2030-01-01T17:00:01Z'),
+          revocationReason: 'Too late',
+        },
+      }),
+    ).rejects.toThrow();
+
+    const lateDeliverySecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: lateDeliverySecret.tokenHash,
+          tokenPrefixForSupport: lateDeliverySecret.tokenPrefixForSupport,
+          deliveredAt: new Date('2030-01-01T17:00:01Z'),
+        },
+      }),
+    ).rejects.toThrow();
+
     await expect(
       prisma.activationToken.create({
         data: {
@@ -1036,6 +1078,36 @@ INVALID-ONLY,
       payload: { reason: 'Repeat request' },
     });
     expect(secondRevoke.statusCode).toBe(409);
+
+    const expiredSecret = generateActivationToken();
+    const expired = await prisma.activationToken.create({
+      data: {
+        registrationRecordId: registration.id,
+        votingScopeId: scope.id,
+        tokenHash: expiredSecret.tokenHash,
+        tokenPrefixForSupport: expiredSecret.tokenPrefixForSupport,
+        generatedBy: storedFirst.generatedBy,
+        generatedAt: new Date(Date.now() - 2_000),
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const expiredDelivery = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/activation-tokens/' + expired.id + '/delivered',
+      headers: { cookie },
+      payload: { deliveryMethod: 'PRINT' },
+    });
+    expect(expiredDelivery.statusCode).toBe(409);
+    expect(expiredDelivery.json().code).toBe('ACTIVATION_TOKEN_EXPIRED');
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: expired.id },
+      }),
+    ).toMatchObject({ deliveredAt: null });
+    await prisma.activationToken.update({
+      where: { id: expired.id },
+      data: { status: ActivationTokenStatus.EXPIRED },
+    });
 
     const auditorLogin = await app.inject({
       method: 'POST',

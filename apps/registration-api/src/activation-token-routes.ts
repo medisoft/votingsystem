@@ -1,6 +1,7 @@
 import {
   ActivationTokenStatus,
   ActorType,
+  Prisma,
   RegistrationStatus,
 } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
@@ -63,40 +64,6 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
         return reply
           .code(400)
           .send({ code: 'INVALID_ACTIVATION_TOKEN_REQUEST' });
-      const now = new Date();
-      const [registration, scope, scopeEligibility] = await Promise.all([
-        app.prisma.registrationRecord.findFirst({
-          where: { id: params.data.id, deletedAt: null },
-        }),
-        app.prisma.votingScope.findUnique({
-          where: { id: params.data.scopeId },
-        }),
-        app.prisma.scopeEligibility.findUnique({
-          where: {
-            registrationRecordId_votingScopeId: {
-              registrationRecordId: params.data.id,
-              votingScopeId: params.data.scopeId,
-            },
-          },
-        }),
-      ]);
-      if (!registration)
-        return reply.code(404).send({ code: 'REGISTRATION_NOT_FOUND' });
-      if (!scope) return reply.code(404).send({ code: 'SCOPE_NOT_FOUND' });
-      if (
-        registration.status !== RegistrationStatus.ACTIVE ||
-        !registration.eligible ||
-        scopeEligibility?.eligible === false
-      )
-        return reply.code(409).send({ code: 'REGISTRATION_NOT_ELIGIBLE' });
-      if (scope.activationEndsAt <= now)
-        return reply.code(409).send({ code: 'ACTIVATION_WINDOW_ENDED' });
-      const expiresAt = body.data.expiresAt
-        ? new Date(body.data.expiresAt)
-        : scope.activationEndsAt;
-      if (expiresAt <= now || expiresAt > scope.activationEndsAt)
-        return reply.code(400).send({ code: 'INVALID_TOKEN_EXPIRATION' });
-
       const generated = generateActivationToken();
       const result = await app.prisma.$transaction(
         async (tx) => {
@@ -105,6 +72,55 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
             'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
             lockKey,
           );
+          const [registration] = await tx.$queryRaw<
+            Array<{
+              id: string;
+              status: RegistrationStatus;
+              eligible: boolean;
+              deletedAt: Date | null;
+            }>
+          >(Prisma.sql`
+            SELECT "id", "status", "eligible", "deletedAt"
+            FROM "RegistrationRecord"
+            WHERE "id" = ${params.data.id}::uuid
+            FOR UPDATE
+          `);
+          if (!registration || registration.deletedAt)
+            return { error: 'REGISTRATION_NOT_FOUND' as const, status: 404 };
+          const [scope] = await tx.$queryRaw<
+            Array<{ id: string; activationEndsAt: Date }>
+          >(Prisma.sql`
+            SELECT "id", "activationEndsAt"
+            FROM "VotingScope"
+            WHERE "id" = ${params.data.scopeId}::uuid
+            FOR UPDATE
+          `);
+          if (!scope) return { error: 'SCOPE_NOT_FOUND' as const, status: 404 };
+          const scopeEligibility = await tx.scopeEligibility.findUnique({
+            where: {
+              registrationRecordId_votingScopeId: {
+                registrationRecordId: params.data.id,
+                votingScopeId: params.data.scopeId,
+              },
+            },
+          });
+          if (
+            registration.status !== RegistrationStatus.ACTIVE ||
+            !registration.eligible ||
+            scopeEligibility?.eligible === false
+          )
+            return {
+              error: 'REGISTRATION_NOT_ELIGIBLE' as const,
+              status: 409,
+            };
+          const generatedAt = new Date();
+          if (scope.activationEndsAt <= generatedAt)
+            return { error: 'ACTIVATION_WINDOW_ENDED' as const, status: 409 };
+          const expiresAt = body.data.expiresAt
+            ? new Date(body.data.expiresAt)
+            : scope.activationEndsAt;
+          if (expiresAt <= generatedAt || expiresAt > scope.activationEndsAt)
+            return { error: 'INVALID_TOKEN_EXPIRATION' as const, status: 400 };
           const active = await tx.activationToken.findFirst({
             where: {
               registrationRecordId: params.data.id,
@@ -112,15 +128,21 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
               status: ActivationTokenStatus.ACTIVE,
             },
           });
-          if (active)
-            await tx.activationToken.update({
-              where: { id: active.id },
+          let replacedTokenId: string | null = null;
+          if (active) {
+            const replaced = await tx.activationToken.updateMany({
+              where: {
+                id: active.id,
+                status: ActivationTokenStatus.ACTIVE,
+              },
               data: {
                 status: ActivationTokenStatus.REVOKED,
-                revokedAt: now,
+                revokedAt: generatedAt,
                 revocationReason: 'Replacement generated',
               },
             });
+            if (replaced.count) replacedTokenId = active.id;
+          }
           const token = await tx.activationToken.create({
             data: {
               registrationRecordId: params.data.id,
@@ -128,30 +150,33 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
               tokenHash: generated.tokenHash,
               tokenPrefixForSupport: generated.tokenPrefixForSupport,
               expiresAt,
+              generatedAt,
               generatedBy: request.admin!.id,
               deliveryMethod: body.data.deliveryMethod ?? null,
             },
           });
-          return { token, replacedTokenId: active?.id ?? null };
+          await appendAudit(tx, {
+            actorType: ActorType.ADMIN,
+            actorId: request.admin!.id,
+            eventType: replacedTokenId
+              ? 'ACTIVATION_TOKEN_REPLACED'
+              : 'ACTIVATION_TOKEN_GENERATED',
+            targetType: 'ActivationToken',
+            targetId: token.id,
+            sourceIp: request.ip,
+            metadata: {
+              registrationRecordId: params.data.id,
+              votingScopeId: params.data.scopeId,
+              expiresAt: expiresAt.toISOString(),
+              replacedTokenId,
+            },
+          });
+          return { token };
         },
         { timeout: ACTIVATION_TOKEN_TRANSACTION_TIMEOUT_MS },
       );
-      await appendAudit(app.prisma, {
-        actorType: ActorType.ADMIN,
-        actorId: request.admin!.id,
-        eventType: result.replacedTokenId
-          ? 'ACTIVATION_TOKEN_REPLACED'
-          : 'ACTIVATION_TOKEN_GENERATED',
-        targetType: 'ActivationToken',
-        targetId: result.token.id,
-        sourceIp: request.ip,
-        metadata: {
-          registrationRecordId: params.data.id,
-          votingScopeId: params.data.scopeId,
-          expiresAt: expiresAt.toISOString(),
-          replacedTokenId: result.replacedTokenId,
-        },
-      });
+      if ('error' in result)
+        return reply.code(result.status ?? 500).send({ code: result.error });
       return reply.code(201).send({
         activationToken: {
           ...publicToken(result.token),
@@ -178,6 +203,7 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
           id: params.data.id,
           status: ActivationTokenStatus.ACTIVE,
           deliveredAt: null,
+          expiresAt: { gt: deliveredAt },
         },
         data: { deliveredAt, deliveryMethod: body.data.deliveryMethod },
       });
@@ -189,6 +215,8 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
           return reply.code(404).send({ code: 'ACTIVATION_TOKEN_NOT_FOUND' });
         if (existing.status !== ActivationTokenStatus.ACTIVE)
           return reply.code(409).send({ code: 'ACTIVATION_TOKEN_NOT_ACTIVE' });
+        if (existing.expiresAt <= deliveredAt)
+          return reply.code(409).send({ code: 'ACTIVATION_TOKEN_EXPIRED' });
         return reply
           .code(409)
           .send({ code: 'ACTIVATION_TOKEN_ALREADY_DELIVERED' });
@@ -222,7 +250,11 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
         return reply.code(400).send({ code: 'INVALID_REVOCATION_REQUEST' });
       const now = new Date();
       const updated = await app.prisma.activationToken.updateMany({
-        where: { id: params.data.id, status: ActivationTokenStatus.ACTIVE },
+        where: {
+          id: params.data.id,
+          status: ActivationTokenStatus.ACTIVE,
+          expiresAt: { gt: now },
+        },
         data: {
           status: ActivationTokenStatus.REVOKED,
           revokedAt: now,
@@ -233,9 +265,14 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
         const existing = await app.prisma.activationToken.findUnique({
           where: { id: params.data.id },
         });
-        return existing
-          ? reply.code(409).send({ code: 'ACTIVATION_TOKEN_NOT_ACTIVE' })
-          : reply.code(404).send({ code: 'ACTIVATION_TOKEN_NOT_FOUND' });
+        if (!existing)
+          return reply.code(404).send({ code: 'ACTIVATION_TOKEN_NOT_FOUND' });
+        if (
+          existing.status === ActivationTokenStatus.ACTIVE &&
+          existing.expiresAt <= now
+        )
+          return reply.code(409).send({ code: 'ACTIVATION_TOKEN_EXPIRED' });
+        return reply.code(409).send({ code: 'ACTIVATION_TOKEN_NOT_ACTIVE' });
       }
       const token = await app.prisma.activationToken.findUniqueOrThrow({
         where: { id: params.data.id },

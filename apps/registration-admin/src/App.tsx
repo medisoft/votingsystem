@@ -67,7 +67,7 @@ interface ActivationTokenSummary {
 interface GeneratedActivationToken extends ActivationTokenSummary {
   registrationRecordId: string;
   rawToken: string;
-  qrDataUrl: string;
+  qrDataUrl: string | null;
 }
 interface CsvImportPreview {
   fileHash: string;
@@ -320,33 +320,24 @@ function Dashboard({ user }: { user: User }) {
           body: JSON.stringify({ deliveryMethod: input.deliveryMethod }),
         },
       );
-      try {
-        const qrDataUrl = await QRCode.toDataURL(
-          response.activationToken.rawToken,
-          {
-            errorCorrectionLevel: 'M',
-            margin: 4,
-            width: 512,
-            type: 'image/png',
-          },
-        );
-        return { ...response.activationToken, qrDataUrl };
-      } catch (error) {
-        await api(
-          '/api/v1/admin/activation-tokens/' +
-            response.activationToken.id +
-            '/revoke',
-          {
-            method: 'POST',
-            body: JSON.stringify({ reason: 'QR generation failed' }),
-          },
-        );
-        throw error;
-      }
-    },
-    onSuccess: (activationToken) => {
+      const qrDataUrl = await QRCode.toDataURL(
+        response.activationToken.rawToken,
+        {
+          errorCorrectionLevel: 'M',
+          margin: 4,
+          width: 512,
+          type: 'image/png',
+        },
+      ).catch(() => null);
+      const activationToken = { ...response.activationToken, qrDataUrl };
       setGeneratedActivationToken(activationToken);
-      setMessage(t('activationTokenGenerated'));
+      setMessage(
+        activationToken.qrDataUrl
+          ? t('activationTokenGenerated')
+          : t('activationQrGenerationFailed'),
+      );
+    },
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
     onError: (error) =>
@@ -360,6 +351,7 @@ function Dashboard({ user }: { user: User }) {
       }),
     onSuccess: () => {
       setGeneratedActivationToken(null);
+      generateActivationTokenMutation.reset();
       setMessage(t('activationTokenDelivered'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
@@ -373,8 +365,10 @@ function Dashboard({ user }: { user: User }) {
         body: JSON.stringify({ reason: input.reason }),
       }),
     onSuccess: (_result, input) => {
-      if (generatedActivationToken?.id === input.id)
+      if (generatedActivationToken?.id === input.id) {
         setGeneratedActivationToken(null);
+        generateActivationTokenMutation.reset();
+      }
       setMessage(t('activationTokenRevoked'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
@@ -447,6 +441,7 @@ function Dashboard({ user }: { user: User }) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     setGeneratedActivationToken(null);
+    generateActivationTokenMutation.reset();
     setMessage('');
     generateActivationTokenMutation.mutate({
       registrationRecordId: String(data.get('tokenRecordId')),
@@ -455,7 +450,7 @@ function Dashboard({ user }: { user: User }) {
     });
   };
   const downloadActivationPdf = async () => {
-    if (!generatedActivationToken) return;
+    if (!generatedActivationToken?.qrDataUrl) return;
     try {
       const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
@@ -655,6 +650,8 @@ function Dashboard({ user }: { user: User }) {
       importPreviewStart,
       importPreviewStart + IMPORT_PREVIEW_PAGE_SIZE,
     ) ?? [];
+  const importPreviewErrors =
+    importPreview?.errors.slice(0, IMPORT_PREVIEW_PAGE_SIZE) ?? [];
   const importPreviewPageCount = Math.max(
     1,
     Math.ceil((importPreview?.rows.length ?? 0) / IMPORT_PREVIEW_PAGE_SIZE),
@@ -823,7 +820,7 @@ function Dashboard({ user }: { user: User }) {
                     })}
                   </p>
                 )}
-                {importPreview.errors.map((error, index) => (
+                {importPreviewErrors.map((error, index) => (
                   <p
                     className="error"
                     key={'file-' + error.row + '-' + error.field + '-' + index}
@@ -835,6 +832,14 @@ function Dashboard({ user }: { user: User }) {
                     })}
                   </p>
                 ))}
+                {(importPreview?.errors.length ?? 0) >
+                  IMPORT_PREVIEW_PAGE_SIZE && (
+                  <p className="error">
+                    {t('importFileErrorsTruncated', {
+                      count: IMPORT_PREVIEW_PAGE_SIZE,
+                    })}
+                  </p>
+                )}
                 {importPreviewRows.map((row) => (
                   <div key={'preview-' + row.row}>
                     <p>
@@ -961,9 +966,11 @@ function Dashboard({ user }: { user: User }) {
                 <select
                   name="tokenRecordId"
                   value={tokenRecordId}
+                  disabled={generateActivationTokenMutation.isPending}
                   onChange={(event) => {
                     setTokenRecordId(event.target.value);
                     setGeneratedActivationToken(null);
+                    generateActivationTokenMutation.reset();
                   }}
                   required
                 >
@@ -979,9 +986,11 @@ function Dashboard({ user }: { user: User }) {
                 <select
                   name="tokenScopeId"
                   value={tokenScopeId}
+                  disabled={generateActivationTokenMutation.isPending}
                   onChange={(event) => {
                     setTokenScopeId(event.target.value);
                     setGeneratedActivationToken(null);
+                    generateActivationTokenMutation.reset();
                   }}
                   required
                 >
@@ -1059,11 +1068,15 @@ function Dashboard({ user }: { user: User }) {
               >
                 <h3>{t('oneTimeActivationTitle')}</h3>
                 <p className="error">{t('oneTimeActivationWarning')}</p>
-                <img
-                  className="activation-qr"
-                  src={generatedActivationToken.qrDataUrl}
-                  alt={t('activationQrAlt')}
-                />
+                {generatedActivationToken.qrDataUrl ? (
+                  <img
+                    className="activation-qr"
+                    src={generatedActivationToken.qrDataUrl}
+                    alt={t('activationQrAlt')}
+                  />
+                ) : (
+                  <p className="error">{t('activationQrFallback')}</p>
+                )}
                 <p>{t('activationInstructions')}</p>
                 <label>
                   {t('rawActivationToken')}
@@ -1071,24 +1084,28 @@ function Dashboard({ user }: { user: User }) {
                     {generatedActivationToken.rawToken}
                   </code>
                 </label>
-                <a
-                  className="download-link"
-                  href={generatedActivationToken.qrDataUrl}
-                  download={
-                    'activation-' +
-                    generatedActivationToken.tokenPrefixForSupport +
-                    '.png'
-                  }
-                >
-                  {t('downloadActivationQr')}
-                </a>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={downloadActivationPdf}
-                >
-                  {t('downloadActivationPdf')}
-                </button>
+                {generatedActivationToken.qrDataUrl && (
+                  <>
+                    <a
+                      className="download-link"
+                      href={generatedActivationToken.qrDataUrl}
+                      download={
+                        'activation-' +
+                        generatedActivationToken.tokenPrefixForSupport +
+                        '.png'
+                      }
+                    >
+                      {t('downloadActivationQr')}
+                    </a>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={downloadActivationPdf}
+                    >
+                      {t('downloadActivationPdf')}
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   className="secondary"
