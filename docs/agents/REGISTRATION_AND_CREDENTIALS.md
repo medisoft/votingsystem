@@ -1071,7 +1071,13 @@ Stage 6.1 foundation implementation contract:
 * Tokens contain 32 bytes (256 bits) of randomness from Node.js cryptography APIs and use base64url encoding.
 * Only a SHA-256 token hash and an eight-character support prefix are persisted.
 * PostgreSQL enforces token formats, expiration ordering, lifecycle timestamp consistency, and one ACTIVE token per registration record and voting scope.
-* Administrative generation and revocation endpoints, one-time display, and QR rendering remain part of the next Stage 6 slice.
+* Stage 6.2 adds rate-limited administrative generation/replacement and revocation endpoints.
+* Generation requires an active, globally eligible registration without an ineligible scope override and an activation window that has not ended.
+* Token expiration defaults to the scope activation end and cannot exceed it.
+* Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token.
+* The raw token appears only in the successful generation response; later responses, storage, logs, and audit metadata expose only non-secret lifecycle fields.
+* Generation, replacement, and revocation create audit events without raw token material.
+* QR rendering, administrative lifecycle UI, and downloadable delivery formats remain part of the next Stage 6 slice.
 
 ---
 

@@ -2,7 +2,10 @@ import { ActivationTokenStatus, AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { generateActivationToken } from '../src/activation-tokens.js';
+import {
+  generateActivationToken,
+  hashActivationToken,
+} from '../src/activation-tokens.js';
 import {
   IMPORT_TRANSACTION_TIMEOUT_MS,
   REGISTRATION_WRITE_LOCK,
@@ -897,5 +900,184 @@ INVALID-ONLY,
         },
       }),
     ).rejects.toThrow();
+  });
+
+  it('generates, replaces, revokes, audits, and rate limits activation tokens', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      remoteAddress: '127.0.0.20',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const rawCookie = login.headers['set-cookie']!;
+    const cookie = (Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie).split(
+      ';',
+    )[0]!;
+    const registration = await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'TOKEN-API-1',
+        ownerName: 'Token API owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const scope = await prisma.votingScope.create({
+      data: {
+        name: 'Token API scope',
+        startsAt: new Date('2035-01-01T12:00:00Z'),
+        endsAt: new Date('2035-01-01T18:00:00Z'),
+        activationStartsAt: new Date('2035-01-01T10:00:00Z'),
+        activationEndsAt: new Date('2035-01-01T17:00:00Z'),
+        credentialExpiresAt: new Date('2035-01-02T00:00:00Z'),
+        issuerKeyVersion: '2035-01',
+      },
+    });
+    const eligibility = await prisma.scopeEligibility.create({
+      data: {
+        registrationRecordId: registration.id,
+        votingScopeId: scope.id,
+        eligible: false,
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const generateUrl =
+      '/api/v1/admin/registrations/' +
+      registration.id +
+      '/scopes/' +
+      scope.id +
+      '/activation-token';
+    const ineligible = await app.inject({
+      method: 'POST',
+      url: generateUrl,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(ineligible.statusCode).toBe(409);
+    expect(ineligible.json().code).toBe('REGISTRATION_NOT_ELIGIBLE');
+    await prisma.scopeEligibility.update({
+      where: { id: eligibility.id },
+      data: { eligible: true },
+    });
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: generateUrl,
+      headers: { cookie },
+      payload: { deliveryMethod: 'PRINT' },
+    });
+    expect(firstResponse.statusCode).toBe(201);
+    const first = firstResponse.json().activationToken;
+    expect(first.rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(first).not.toHaveProperty('tokenHash');
+    expect(first).not.toHaveProperty('generatedBy');
+    const storedFirst = await prisma.activationToken.findUniqueOrThrow({
+      where: { id: first.id },
+    });
+    expect(storedFirst.tokenHash).toBe(hashActivationToken(first.rawToken));
+    expect(JSON.stringify(storedFirst)).not.toContain(first.rawToken);
+
+    const replacementResponse = await app.inject({
+      method: 'POST',
+      url: generateUrl,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(replacementResponse.statusCode).toBe(201);
+    const replacement = replacementResponse.json().activationToken;
+    expect(replacement.rawToken).not.toBe(first.rawToken);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: first.id },
+      }),
+    ).toMatchObject({
+      status: ActivationTokenStatus.REVOKED,
+      revocationReason: 'Replacement generated',
+    });
+
+    const revokedResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/activation-tokens/' + replacement.id + '/revoke',
+      headers: { cookie },
+      payload: { reason: 'Resident requested replacement' },
+    });
+    expect(revokedResponse.statusCode).toBe(200);
+    expect(revokedResponse.json().activationToken).not.toHaveProperty(
+      'rawToken',
+    );
+    expect(revokedResponse.json().activationToken).not.toHaveProperty(
+      'tokenHash',
+    );
+    expect(revokedResponse.json().activationToken.status).toBe('REVOKED');
+    const secondRevoke = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/activation-tokens/' + replacement.id + '/revoke',
+      headers: { cookie },
+      payload: { reason: 'Repeat request' },
+    });
+    expect(secondRevoke.statusCode).toBe(409);
+
+    const auditorLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      remoteAddress: '127.0.0.21',
+      payload: { email: 'auditor@example.com', password: 'auditor-password' },
+    });
+    const auditorRawCookie = auditorLogin.headers['set-cookie']!;
+    const auditorCookie = (
+      Array.isArray(auditorRawCookie) ? auditorRawCookie[0]! : auditorRawCookie
+    ).split(';')[0]!;
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: generateUrl,
+          headers: { cookie: auditorCookie },
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    const auditEvents = await prisma.auditEvent.findMany({
+      where: {
+        targetType: 'ActivationToken',
+        targetId: { in: [first.id, replacement.id] },
+      },
+    });
+    expect(auditEvents.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        'ACTIVATION_TOKEN_GENERATED',
+        'ACTIVATION_TOKEN_REPLACED',
+        'ACTIVATION_TOKEN_REVOKED',
+      ]),
+    );
+    expect(JSON.stringify(auditEvents)).not.toContain(first.rawToken);
+    expect(JSON.stringify(auditEvents)).not.toContain(replacement.rawToken);
+
+    const missingUrl =
+      '/api/v1/admin/registrations/00000000-0000-4000-8000-000000000001/scopes/' +
+      scope.id +
+      '/activation-token';
+    for (let attempt = 0; attempt < 10; attempt += 1)
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: missingUrl,
+            remoteAddress: '127.0.0.22',
+            headers: { cookie },
+            payload: {},
+          })
+        ).statusCode,
+      ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: missingUrl,
+          remoteAddress: '127.0.0.22',
+          headers: { cookie },
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(429);
   });
 });

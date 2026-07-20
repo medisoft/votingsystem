@@ -92,11 +92,13 @@ Invalid rows show their exact CSV row and field. Valid rows can still be committ
 
 Known limitations: imports create new registration records only; updating existing units and assigning per-scope eligibility through CSV are deferred. Error explanations are localized in the UI, while error-report codes remain stable English API identifiers.
 
-## Stage 6.1 activation-token foundation
+## Stage 6.2 activation-token lifecycle API
 
-Activation tokens use 32 bytes (256 bits) of cryptographically secure randomness encoded as URL-safe opaque strings. Only SHA-256 hashes and an eight-character support prefix are designed for persistence; raw tokens are returned only by future generation workflows.
+Activation tokens use 32 bytes (256 bits) of cryptographically secure randomness encoded as URL-safe opaque strings. Only SHA-256 hashes and an eight-character support prefix are persisted. The raw token is returned exactly once by the administrative generation response and is excluded from later responses, storage, logs, and audit metadata.
 
-The `ActivationToken` model records registration, voting scope, generator, expiration, delivery, redemption, and revocation lifecycle data. PostgreSQL enforces hash and prefix formats, expiration ordering, lifecycle timestamp consistency, and at most one ACTIVE token per registration and voting scope. Administrative generation and revocation endpoints, one-time display, and QR rendering belong to the next Stage 6 slice.
+POST /api/v1/admin/registrations/:id/scopes/:scopeId/activation-token generates or replaces a token for an eligible registration. Replacement atomically revokes the prior ACTIVE token. Expiration defaults to the scope activation end and cannot exceed it. POST /api/v1/admin/activation-tokens/:id/revoke revokes an ACTIVE token with a reason. Both endpoints require registration-write permission, are rate limited to 10 requests per minute per client, and create audit events.
+
+QR rendering, the administrative token UI, and downloadable PNG/print delivery remain for Stage 6 Step 3.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
