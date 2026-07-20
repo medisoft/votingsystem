@@ -137,17 +137,24 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
           });
           let replacedTokenId: string | null = null;
           if (active) {
-            const replaced = await tx.activationToken.updateMany({
-              where: {
-                id: active.id,
-                status: ActivationTokenStatus.ACTIVE,
-              },
-              data: {
-                status: ActivationTokenStatus.REVOKED,
-                revokedAt: generatedAt,
-                revocationReason: 'Replacement generated',
-              },
-            });
+            const expired = active.expiresAt <= generatedAt;
+            const where = {
+              id: active.id,
+              status: ActivationTokenStatus.ACTIVE,
+            };
+            const replaced = expired
+              ? await tx.activationToken.updateMany({
+                  where,
+                  data: { status: ActivationTokenStatus.EXPIRED },
+                })
+              : await tx.activationToken.updateMany({
+                  where,
+                  data: {
+                    status: ActivationTokenStatus.REVOKED,
+                    revokedAt: generatedAt,
+                    revocationReason: 'Replacement generated',
+                  },
+                });
             if (replaced.count) replacedTokenId = active.id;
           }
           const token = await tx.activationToken.create({

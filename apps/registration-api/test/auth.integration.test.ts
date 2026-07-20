@@ -1132,9 +1132,24 @@ INVALID-ONLY,
         where: { id: expired.id },
       }),
     ).toMatchObject({ deliveredAt: null });
-    await prisma.activationToken.update({
-      where: { id: expired.id },
-      data: { status: ActivationTokenStatus.EXPIRED },
+    const expiredReplacementResponse = await app.inject({
+      method: 'POST',
+      url: generateUrl,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(expiredReplacementResponse.statusCode).toBe(201);
+    expect(
+      expiredReplacementResponse.json().activationToken.rawToken,
+    ).toHaveLength(43);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: expired.id },
+      }),
+    ).toMatchObject({
+      status: ActivationTokenStatus.EXPIRED,
+      revokedAt: null,
+      revocationReason: null,
     });
 
     const auditorLogin = await app.inject({
