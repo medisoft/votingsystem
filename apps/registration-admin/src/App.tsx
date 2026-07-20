@@ -454,6 +454,53 @@ function Dashboard({ user }: { user: User }) {
       deliveryMethod: String(data.get('deliveryMethod')),
     });
   };
+  const downloadActivationPdf = async () => {
+    if (!generatedActivationToken) return;
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(20);
+      pdf.text(t('oneTimeActivationTitle'), 20, 22);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.text(pdf.splitTextToSize(t('activationInstructions'), 170), 20, 34);
+      pdf.addImage(generatedActivationToken.qrDataUrl, 'PNG', 55, 51, 100, 100);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(t('rawActivationToken'), 20, 166);
+      pdf.setFont('courier', 'normal');
+      pdf.setFontSize(9);
+      pdf.text(
+        pdf.splitTextToSize(generatedActivationToken.rawToken, 170),
+        20,
+        173,
+      );
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.text(
+        t('activationTokenPrefix', {
+          prefix: generatedActivationToken.tokenPrefixForSupport,
+        }),
+        20,
+        191,
+      );
+      pdf.setTextColor(160, 30, 30);
+      pdf.text(
+        pdf.splitTextToSize(t('oneTimeActivationWarning'), 170),
+        20,
+        205,
+      );
+      pdf.save(
+        'activation-' + generatedActivationToken.tokenPrefixForSupport + '.pdf',
+      );
+    } catch {
+      setMessage(t('activationPdfFailed'));
+    }
+  };
   const revokeSelectedActivationToken = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -1035,6 +1082,13 @@ function Dashboard({ user }: { user: User }) {
                 >
                   {t('downloadActivationQr')}
                 </a>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={downloadActivationPdf}
+                >
+                  {t('downloadActivationPdf')}
+                </button>
                 <button
                   type="button"
                   className="secondary"

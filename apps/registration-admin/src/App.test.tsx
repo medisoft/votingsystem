@@ -7,11 +7,26 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { App } from './App';
 
 vi.mock('qrcode', () => ({
   default: { toDataURL: vi.fn(async () => 'data:image/png;base64,qr') },
+}));
+const pdfSave = vi.fn();
+const pdfText = vi.fn();
+const pdfAddImage = vi.fn();
+vi.mock('jspdf', () => ({
+  jsPDF: vi.fn(() => ({
+    setFont: vi.fn(),
+    setFontSize: vi.fn(),
+    setTextColor: vi.fn(),
+    splitTextToSize: vi.fn((text: string) => [text]),
+    text: pdfText,
+    addImage: pdfAddImage,
+    save: pdfSave,
+  })),
 }));
 
 type MockResponse = {
@@ -22,6 +37,7 @@ type MockResponse = {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 it('shows login when there is no session', async () => {
   vi.stubGlobal(
@@ -561,6 +577,26 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
   expect(
     screen.getByRole('link', { name: 'Download QR as PNG' }),
   ).toHaveAttribute('download', 'activation-abcdefgh.png');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Download activation PDF' }),
+  );
+  await waitFor(() =>
+    expect(jsPDF).toHaveBeenCalledWith({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    }),
+  );
+  expect(pdfAddImage).toHaveBeenCalledWith(
+    'data:image/png;base64,qr',
+    'PNG',
+    55,
+    51,
+    100,
+    100,
+  );
+  expect(pdfText).toHaveBeenCalledWith(['opaque-activation-token'], 20, 173);
+  expect(pdfSave).toHaveBeenCalledWith('activation-abcdefgh.pdf');
   expect(delivery).toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', {

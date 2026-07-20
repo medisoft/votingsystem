@@ -515,6 +515,18 @@ export const messages = {
     en: 'Download QR as PNG',
     es: 'Descargar QR como PNG',
   },
+  downloadActivationPdf: {
+    description:
+      'Button that downloads a one-page PDF containing the activation QR, fallback token, and delivery instructions.',
+    en: 'Download activation PDF',
+    es: 'Descargar PDF de activación',
+  },
+  activationPdfFailed: {
+    description:
+      'Error shown when the browser cannot create the activation delivery PDF.',
+    en: 'The activation PDF could not be created. You can still download the QR as PNG or print it.',
+    es: 'No se pudo crear el PDF de activación. Aún puedes descargar el QR como PNG o imprimirlo.',
+  },
   printActivationQr: {
     description:
       'Button that opens browser printing for the activation QR and instructions.',

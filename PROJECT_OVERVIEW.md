@@ -399,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–5 and Stage 6 Steps 1–3 are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports. Stage 6.1 adds hash-only opaque-token cryptography and database-enforced lifecycle invariants. Stage 6.2 adds rate-limited administrative generation, atomic replacement, revocation, one-time raw-token responses, and audit events; Stage 6.3 adds browser-local opaque-token QR generation, one-time PNG delivery, delivery confirmation, and administrative replacement/revocation UI. Printable PDF layout remains pending.
+Registration Service Stages 1–5 and Stage 6 Steps 1–4 are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports. Stage 6.1 adds hash-only opaque-token cryptography and database-enforced lifecycle invariants. Stage 6.2 adds rate-limited administrative generation, atomic replacement, revocation, one-time raw-token responses, and audit events; Stage 6.3 adds browser-local opaque-token QR generation, one-time PNG delivery, delivery confirmation, and administrative replacement/revocation UI; Stage 6.4 adds a localized, single-page, browser-generated PDF delivery package without personal data.
 
 The MVP will prioritize:
 

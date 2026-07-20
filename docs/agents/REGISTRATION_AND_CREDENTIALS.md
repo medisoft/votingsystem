@@ -328,7 +328,7 @@ Rules:
 * Generating a new token revokes the previous unredeemed token.
 * The raw token is shown only once.
 * Only the token hash is stored.
-* The QR code must be downloadable as PNG and printable as PDF in a later stage.
+* The QR code must be downloadable as PNG and as a localized, single-page PDF generated in the administrator browser.
 * Record who generated the token and when.
 * Optionally record the delivery method.
 
@@ -1081,8 +1081,10 @@ Stage 6.1 foundation implementation contract:
 * Stage 6.3 generates QR PNG data locally in the administrator browser from the one-time raw-token response; the QR payload is the opaque token only and contains no personal information.
 * The administrative UI supports generation, atomic replacement, active-token status, revocation, printable instructions, and one-time PNG download.
 * Secure-delivery confirmation records the delivery timestamp and method, creates an audit event, and permanently hides the raw token and QR from the UI.
-* QR generation failure revokes the newly created unusable token. Printable PDF layout remains deferred.
+* QR generation failure revokes the newly created unusable token.
 * The qrcode dependency evaluation, license, security audit, and compatibility evidence are documented in README.md.
+* Stage 6.4 generates a localized, single-page PDF in the administrator browser with the anonymous QR, fallback token, instructions, warning, and non-secret support prefix. It includes no owner, unit, email, or other personal data, and PDF download does not confirm delivery.
+* The jsPDF dependency evaluation, license, security audit, compatibility, and release evidence are documented in README.md.
 
 ---
 
