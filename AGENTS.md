@@ -16,3 +16,10 @@
   in addition of the automated tests.
 - Split long stages into smaller steps grouped by functionallity to make them more
   manegable
+
+## Code quality
+
+- Use simple, short code when possible.
+- Focus on re-usability when it makes sense.
+- Keep functions small, for easier reviewing and testing
+- Document functions parameters and responses using jsdoc, javadoc, or the default for each language.
