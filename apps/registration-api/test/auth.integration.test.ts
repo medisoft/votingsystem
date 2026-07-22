@@ -179,6 +179,35 @@ suite('administrative authentication', () => {
       }),
     ).rejects.toThrow();
 
+    const missingReasonSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: missingReasonSecret.tokenHash,
+          tokenPrefixForSupport: missingReasonSecret.tokenPrefixForSupport,
+          status: ActivationTokenStatus.REVOKED,
+          revokedAt: new Date('2030-01-01T09:05:00Z'),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const blankReasonSecret = generateActivationToken();
+    await expect(
+      prisma.activationToken.create({
+        data: {
+          ...common,
+          registrationRecordId: invalidRegistration.id,
+          tokenHash: blankReasonSecret.tokenHash,
+          tokenPrefixForSupport: blankReasonSecret.tokenPrefixForSupport,
+          status: ActivationTokenStatus.REVOKED,
+          revokedAt: new Date('2030-01-01T09:05:00Z'),
+          revocationReason: '   ',
+        },
+      }),
+    ).rejects.toThrow();
+
     const lateDeliverySecret = generateActivationToken();
     await expect(
       prisma.activationToken.create({
@@ -457,6 +486,21 @@ suite('administrative authentication', () => {
       revocationReason: 'Scope eligibility removed',
     });
     expect(
+      await prisma.auditEvent.findFirst({
+        where: {
+          eventType: 'ACTIVATION_TOKEN_REVOKED',
+          targetType: 'ActivationToken',
+          targetId: scopedToken.id,
+        },
+      }),
+    ).toMatchObject({
+      actorId: administrator.id,
+      metadata: {
+        reason: 'Scope eligibility removed',
+        trigger: 'SCOPE_ELIGIBILITY_SET',
+      },
+    });
+    expect(
       (
         await app.inject({
           method: 'PUT',
@@ -492,6 +536,21 @@ suite('administrative authentication', () => {
     ).toMatchObject({
       status: ActivationTokenStatus.REVOKED,
       revocationReason: 'Registration became ineligible',
+    });
+    expect(
+      await prisma.auditEvent.findFirst({
+        where: {
+          eventType: 'ACTIVATION_TOKEN_REVOKED',
+          targetType: 'ActivationToken',
+          targetId: globalToken.id,
+        },
+      }),
+    ).toMatchObject({
+      actorId: administrator.id,
+      metadata: {
+        reason: 'Registration became ineligible',
+        trigger: 'REGISTRATION_UPDATED',
+      },
     });
     const auditorLogin = await app.inject({
       method: 'POST',
@@ -594,6 +653,21 @@ suite('administrative authentication', () => {
     ).toMatchObject({
       status: ActivationTokenStatus.REVOKED,
       revocationReason: 'Registration soft-deleted',
+    });
+    expect(
+      await prisma.auditEvent.findFirst({
+        where: {
+          eventType: 'ACTIVATION_TOKEN_REVOKED',
+          targetType: 'ActivationToken',
+          targetId: deletionToken.id,
+        },
+      }),
+    ).toMatchObject({
+      actorId: administrator.id,
+      metadata: {
+        reason: 'Registration soft-deleted',
+        trigger: 'REGISTRATION_SOFT_DELETED',
+      },
     });
     expect(
       (

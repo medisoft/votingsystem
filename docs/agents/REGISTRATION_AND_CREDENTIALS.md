@@ -1076,6 +1076,7 @@ Stage 6.1 foundation implementation contract:
 * Generation requires an ACTIVATION_OPEN scope, an active and globally eligible registration without an ineligible scope override, and an activation window that has not ended.
 * Token expiration defaults to the scope activation end; a custom expiration must fall after activation starts and cannot exceed activation end.
 * Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token. Global or scope-level ineligibility and soft deletion atomically invalidate affected ACTIVE tokens.
+* Every revoked token has a nonblank reason, and automatic expiration or revocation caused by eligibility changes or soft deletion creates a token-specific audit event in the same transaction.
 * The raw token appears only in the successful generation response; later responses, storage, logs, and audit metadata expose only non-secret lifecycle fields.
 * Generation, replacement, and revocation create audit events without raw token material.
 * Stage 6.3 generates QR PNG data locally in the administrator browser from the one-time raw-token response; the QR payload is the opaque token only and contains no personal information.

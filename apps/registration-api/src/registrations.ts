@@ -77,6 +77,7 @@ const auditorSelect = {
  * @param where - Registration and optional scope filter for affected tokens.
  * @param now - Timestamp shared by expiration and revocation transitions.
  * @param reason - Audit-friendly reason stored on unexpired revoked tokens.
+ * @param audit - Administrator and request context for token audit events.
  * @returns The number of tokens transitioned to EXPIRED or REVOKED.
  */
 async function invalidateActiveTokens(
@@ -87,16 +88,18 @@ async function invalidateActiveTokens(
   >,
   now: Date,
   reason: string,
+  audit: { actorId: string; sourceIp: string; trigger: string },
 ) {
-  const expired = await tx.activationToken.updateMany({
+  const expired = await tx.activationToken.updateManyAndReturn({
     where: {
       ...where,
       status: ActivationTokenStatus.ACTIVE,
       expiresAt: { lte: now },
     },
     data: { status: ActivationTokenStatus.EXPIRED },
+    select: { id: true },
   });
-  const revoked = await tx.activationToken.updateMany({
+  const revoked = await tx.activationToken.updateManyAndReturn({
     where: {
       ...where,
       status: ActivationTokenStatus.ACTIVE,
@@ -107,8 +110,29 @@ async function invalidateActiveTokens(
       revokedAt: now,
       revocationReason: reason,
     },
+    select: { id: true },
   });
-  return expired.count + revoked.count;
+  for (const token of expired)
+    await appendAudit(tx, {
+      actorType: ActorType.ADMIN,
+      actorId: audit.actorId,
+      eventType: 'ACTIVATION_TOKEN_EXPIRED',
+      targetType: 'ActivationToken',
+      targetId: token.id,
+      sourceIp: audit.sourceIp,
+      metadata: { reason, trigger: audit.trigger },
+    });
+  for (const token of revoked)
+    await appendAudit(tx, {
+      actorType: ActorType.ADMIN,
+      actorId: audit.actorId,
+      eventType: 'ACTIVATION_TOKEN_REVOKED',
+      targetType: 'ActivationToken',
+      targetId: token.id,
+      sourceIp: audit.sourceIp,
+      metadata: { reason, trigger: audit.trigger },
+    });
+  return expired.length + revoked.length;
 }
 
 export function registerRegistrationRoutes(app: FastifyInstance) {
@@ -278,6 +302,11 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
                 { registrationRecordId: p.data.id },
                 new Date(),
                 'Registration became ineligible',
+                {
+                  actorId: request.admin!.id,
+                  sourceIp: request.ip,
+                  trigger: 'REGISTRATION_UPDATED',
+                },
               );
             return updated;
           },
@@ -337,6 +366,11 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
             { registrationRecordId: p.data.id },
             deletedAt,
             'Registration soft-deleted',
+            {
+              actorId: request.admin!.id,
+              sourceIp: request.ip,
+              trigger: 'REGISTRATION_SOFT_DELETED',
+            },
           );
         return updated;
       });
@@ -408,6 +442,11 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
             },
             new Date(),
             'Scope eligibility removed',
+            {
+              actorId: request.admin!.id,
+              sourceIp: request.ip,
+              trigger: 'SCOPE_ELIGIBILITY_SET',
+            },
           );
         return eligibility;
       });
