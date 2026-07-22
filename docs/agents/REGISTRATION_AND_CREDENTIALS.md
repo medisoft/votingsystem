@@ -1074,13 +1074,13 @@ Stage 6.1 foundation implementation contract:
 * PostgreSQL enforces token formats, expiration ordering, lifecycle timestamp consistency, and one ACTIVE token per registration record and voting scope.
 * Stage 6.2 adds rate-limited administrative generation/replacement and revocation endpoints.
 * Generation requires an ACTIVATION_OPEN scope, an active and globally eligible registration without an ineligible scope override, and an activation window that has not ended.
-* Token expiration defaults to the scope activation end and cannot exceed it.
-* Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token.
+* Token expiration defaults to the scope activation end; a custom expiration must fall after activation starts and cannot exceed activation end.
+* Replacement atomically revokes the previous ACTIVE token for the registration and scope before creating the new token. Global or scope-level ineligibility and soft deletion atomically invalidate affected ACTIVE tokens.
 * The raw token appears only in the successful generation response; later responses, storage, logs, and audit metadata expose only non-secret lifecycle fields.
 * Generation, replacement, and revocation create audit events without raw token material.
 * Stage 6.3 generates QR PNG data locally in the administrator browser from the one-time raw-token response; the QR payload is the opaque token only and contains no personal information.
 * The administrative UI supports generation, atomic replacement, active-token status, revocation, printable instructions, and one-time PNG download.
-* Secure-delivery confirmation records the delivery timestamp and method, creates an audit event, and permanently hides the raw token and QR from the UI.
+* Secure-delivery confirmation rechecks registration and scope eligibility, records the delivery timestamp and method atomically with its audit event, and permanently hides the raw token and QR from the UI.
 * If local QR rendering fails, the valid replacement remains active and the UI preserves the one-time raw-token fallback instead of leaving the registration without an active token.
 * The qrcode dependency evaluation, license, security audit, and compatibility evidence are documented in README.md.
 * Stage 6.4 generates a localized, single-page PDF in the administrator browser with the anonymous QR, fallback token, instructions, warning, and non-secret support prefix. It includes no owner, unit, email, or other personal data, and PDF download does not confirm delivery.

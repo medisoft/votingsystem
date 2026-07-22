@@ -356,6 +356,9 @@ suite('administrative authentication', () => {
     });
     const raw = login.headers['set-cookie']!;
     const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(';')[0]!;
+    const administrator = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+    });
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/admin/registrations',
@@ -427,6 +430,69 @@ suite('administrative authentication', () => {
     });
     expect(eligibility.statusCode).toBe(200);
     expect(eligibility.json().eligibility.votingWeight).toBe('2.5');
+    const scopedSecret = generateActivationToken();
+    const scopedToken = await prisma.activationToken.create({
+      data: {
+        registrationRecordId: record.id,
+        votingScopeId: scope.id,
+        tokenHash: scopedSecret.tokenHash,
+        tokenPrefixForSupport: scopedSecret.tokenPrefixForSupport,
+        expiresAt: scope.activationEndsAt,
+        generatedBy: administrator.id,
+      },
+    });
+    const madeScopeIneligible = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/admin/registrations/${record.id}/scopes/${scope.id}`,
+      headers: { cookie },
+      payload: { eligible: false, votingWeight: '2.5000' },
+    });
+    expect(madeScopeIneligible.statusCode).toBe(200);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: scopedToken.id },
+      }),
+    ).toMatchObject({
+      status: ActivationTokenStatus.REVOKED,
+      revocationReason: 'Scope eligibility removed',
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: `/api/v1/admin/registrations/${record.id}/scopes/${scope.id}`,
+          headers: { cookie },
+          payload: { eligible: true, votingWeight: '2.5000' },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const globalSecret = generateActivationToken();
+    const globalToken = await prisma.activationToken.create({
+      data: {
+        registrationRecordId: second.json().record.id,
+        votingScopeId: scope.id,
+        tokenHash: globalSecret.tokenHash,
+        tokenPrefixForSupport: globalSecret.tokenPrefixForSupport,
+        expiresAt: scope.activationEndsAt,
+        generatedBy: administrator.id,
+      },
+    });
+    const madeGloballyIneligible = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/registrations/' + second.json().record.id,
+      headers: { cookie },
+      payload: { eligible: false, version: second.json().record.version },
+    });
+    expect(madeGloballyIneligible.statusCode).toBe(200);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: globalToken.id },
+      }),
+    ).toMatchObject({
+      status: ActivationTokenStatus.REVOKED,
+      revocationReason: 'Registration became ineligible',
+    });
     const auditorLogin = await app.inject({
       method: 'POST',
       remoteAddress: '127.0.0.3',
@@ -480,6 +546,17 @@ suite('administrative authentication', () => {
     });
     expect(updated.statusCode).toBe(200);
     const updatedRecord = updated.json().record;
+    const deletionSecret = generateActivationToken();
+    const deletionToken = await prisma.activationToken.create({
+      data: {
+        registrationRecordId: record.id,
+        votingScopeId: scope.id,
+        tokenHash: deletionSecret.tokenHash,
+        tokenPrefixForSupport: deletionSecret.tokenPrefixForSupport,
+        expiresAt: scope.activationEndsAt,
+        generatedBy: administrator.id,
+      },
+    });
     expect(
       (
         await app.inject({
@@ -510,6 +587,14 @@ suite('administrative authentication', () => {
         })
       ).statusCode,
     ).toBe(204);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: deletionToken.id },
+      }),
+    ).toMatchObject({
+      status: ActivationTokenStatus.REVOKED,
+      revocationReason: 'Registration soft-deleted',
+    });
     expect(
       (
         await app.inject({
@@ -1027,6 +1112,14 @@ INVALID-ONLY,
       where: { id: eligibility.id },
       data: { eligible: true },
     });
+    const preWindowExpiration = await app.inject({
+      method: 'POST',
+      url: generateUrl,
+      headers: { cookie },
+      payload: { expiresAt: '2035-01-01T09:59:59Z' },
+    });
+    expect(preWindowExpiration.statusCode).toBe(400);
+    expect(preWindowExpiration.json().code).toBe('INVALID_TOKEN_EXPIRATION');
 
     const firstResponse = await app.inject({
       method: 'POST',
@@ -1044,6 +1137,23 @@ INVALID-ONLY,
     });
     expect(storedFirst.tokenHash).toBe(hashActivationToken(first.rawToken));
     expect(JSON.stringify(storedFirst)).not.toContain(first.rawToken);
+
+    await prisma.registrationRecord.update({
+      where: { id: registration.id },
+      data: { eligible: false },
+    });
+    const ineligibleDelivery = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/activation-tokens/' + first.id + '/delivered',
+      headers: { cookie },
+      payload: { deliveryMethod: 'PRINT' },
+    });
+    expect(ineligibleDelivery.statusCode).toBe(409);
+    expect(ineligibleDelivery.json().code).toBe('REGISTRATION_NOT_ELIGIBLE');
+    await prisma.registrationRecord.update({
+      where: { id: registration.id },
+      data: { eligible: true },
+    });
 
     const deliveredResponse = await app.inject({
       method: 'POST',
