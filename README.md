@@ -50,9 +50,9 @@ Administrative authentication uses an opaque, hashed, eight-hour server-side ses
 
 Roles are SYSTEM_ADMIN, REGISTRATION_OPERATOR, and AUDITOR. Only a system administrator can list and create administrator accounts in this stage.
 
-## Known Stage 2 limitations
+## Known limitations
 
-- There are no voting scopes, voter records, activation tokens, or credentials yet.
+- Voting scopes, voter records, CSV imports, and activation-token delivery are implemented. Activation-token redemption, credential issuance, and voting remain for later stages.
 - Account editing, password reset, TOTP, and the complete audit viewer are deferred.
 - Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
 
