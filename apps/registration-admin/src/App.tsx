@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import QRCode from 'qrcode';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createTranslator, detectLocale } from './i18n';
 
 // Empty by default so browsers use the same hostname that served the UI.
 // Vite proxies /api to the registration API during local/container development.
 const apiUrl = import.meta.env.VITE_API_URL || '';
+const IMPORT_PREVIEW_PAGE_SIZE = 100;
 type Role = 'SYSTEM_ADMIN' | 'REGISTRATION_OPERATOR' | 'AUDITOR';
 interface User {
   id: string;
@@ -50,6 +52,26 @@ interface Registration {
     votingWeight: string;
     votingScope: { id: string; name: string; status: ScopeStatus };
   }>;
+  activationTokens: ActivationTokenSummary[];
+}
+interface ActivationTokenSummary {
+  id: string;
+  votingScopeId: string;
+  tokenPrefixForSupport: string;
+  status: 'ACTIVE';
+  expiresAt: string;
+  generatedAt: string;
+  deliveryMethod: string | null;
+  deliveredAt: string | null;
+}
+interface GeneratedActivationToken extends ActivationTokenSummary {
+  registrationRecordId: string;
+  rawToken: string;
+  qrDataUrl: string | null;
+}
+interface GeneratedTokenInvalidationTarget {
+  registrationRecordId: string;
+  votingScopeId?: string;
 }
 interface CsvImportPreview {
   fileHash: string;
@@ -223,6 +245,10 @@ function Dashboard({ user }: { user: User }) {
   const { locale, t } = useI18n();
   const client = useQueryClient();
   const [message, setMessage] = useState('');
+  const [tokenRecordId, setTokenRecordId] = useState('');
+  const [tokenScopeId, setTokenScopeId] = useState('');
+  const [generatedActivationToken, setGeneratedActivationToken] =
+    useState<GeneratedActivationToken | null>(null);
   const [importSource, setImportSource] = useState<{
     fileName: string;
     csv: string;
@@ -233,6 +259,7 @@ function Dashboard({ user }: { user: User }) {
   const [importResult, setImportResult] = useState<CsvImportResult | null>(
     null,
   );
+  const [importPreviewPage, setImportPreviewPage] = useState(0);
   const importSelection = useRef(0);
   const users = useQuery({
     queryKey: ['users'],
@@ -251,6 +278,12 @@ function Dashboard({ user }: { user: User }) {
         `/api/v1/admin/registrations?search=${encodeURIComponent(registrationSearch)}`,
       ),
   });
+  useEffect(() => {
+    if (!tokenRecordId && registrations.data?.records[0])
+      setTokenRecordId(registrations.data.records[0].id);
+    if (!tokenScopeId && scopes.data?.scopes[0])
+      setTokenScopeId(scopes.data.scopes[0].id);
+  }, [registrations.data, scopes.data, tokenRecordId, tokenScopeId]);
   const registrationMutation = useMutation({
     mutationFn: ({
       path,
@@ -260,17 +293,101 @@ function Dashboard({ user }: { user: User }) {
       path: string;
       body?: unknown;
       method?: string;
+      invalidatesGeneratedToken?: GeneratedTokenInvalidationTarget;
     }) =>
       api(path, {
         method,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
-    onSuccess: () => {
+    onSuccess: (_result, input) => {
+      const target = input.invalidatesGeneratedToken;
+      if (
+        target &&
+        generatedActivationToken?.registrationRecordId ===
+          target.registrationRecordId &&
+        (!target.votingScopeId ||
+          generatedActivationToken.votingScopeId === target.votingScopeId)
+      )
+        setGeneratedActivationToken(null);
       setMessage(t('recordUpdated'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
     onError: (error) =>
       setMessage(t('recordSaveFailed', { error: error.message })),
+  });
+  const generateActivationTokenMutation = useMutation({
+    mutationFn: async (input: {
+      registrationRecordId: string;
+      votingScopeId: string;
+      deliveryMethod: string;
+    }) => {
+      const response = await api<{
+        activationToken: Omit<GeneratedActivationToken, 'qrDataUrl'>;
+      }>(
+        '/api/v1/admin/registrations/' +
+          input.registrationRecordId +
+          '/scopes/' +
+          input.votingScopeId +
+          '/activation-token',
+        {
+          method: 'POST',
+          body: JSON.stringify({ deliveryMethod: input.deliveryMethod }),
+        },
+      );
+      const qrDataUrl = await QRCode.toDataURL(
+        response.activationToken.rawToken,
+        {
+          errorCorrectionLevel: 'M',
+          margin: 4,
+          width: 512,
+          type: 'image/png',
+        },
+      ).catch(() => null);
+      const activationToken = { ...response.activationToken, qrDataUrl };
+      setGeneratedActivationToken(activationToken);
+      setMessage(
+        activationToken.qrDataUrl
+          ? t('activationTokenGenerated')
+          : t('activationQrGenerationFailed'),
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
+  });
+  const confirmActivationTokenDelivery = useMutation({
+    mutationFn: (input: { id: string; deliveryMethod: string }) =>
+      api('/api/v1/admin/activation-tokens/' + input.id + '/delivered', {
+        method: 'POST',
+        body: JSON.stringify({ deliveryMethod: input.deliveryMethod }),
+      }),
+    onSuccess: () => {
+      setGeneratedActivationToken(null);
+      generateActivationTokenMutation.reset();
+      setMessage(t('activationTokenDelivered'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
+  });
+  const revokeActivationToken = useMutation({
+    mutationFn: (input: { id: string; reason: string }) =>
+      api('/api/v1/admin/activation-tokens/' + input.id + '/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ reason: input.reason }),
+      }),
+    onSuccess: (_result, input) => {
+      if (generatedActivationToken?.id === input.id) {
+        setGeneratedActivationToken(null);
+        generateActivationTokenMutation.reset();
+      }
+      setMessage(t('activationTokenRevoked'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('activationTokenActionFailed', { error: error.message })),
   });
   const previewImport = useMutation({
     mutationFn: ({
@@ -287,6 +404,7 @@ function Dashboard({ user }: { user: User }) {
       if (selection !== importSelection.current) return;
       setImportSource(source);
       setImportPreview(preview);
+      setImportPreviewPage(0);
       setImportResult(null);
     },
     onError: (_error, { selection }) => {
@@ -309,6 +427,7 @@ function Dashboard({ user }: { user: User }) {
     onError: (error) => {
       if (error instanceof ApiError && error.body.preview) {
         setImportPreview(error.body.preview);
+        setImportPreviewPage(0);
         setImportResult(null);
       }
       setMessage(
@@ -325,11 +444,80 @@ function Dashboard({ user }: { user: User }) {
     if (!(file instanceof File) || !file.name) return;
     setImportSource(null);
     setImportPreview(null);
+    setImportPreviewPage(0);
     setImportResult(null);
     const selection = importSelection.current;
     const source = { fileName: file.name, csv: await file.text() };
     if (selection !== importSelection.current) return;
     previewImport.mutate({ source, selection });
+  };
+  const generateActivation = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    generateActivationTokenMutation.reset();
+    setMessage('');
+    generateActivationTokenMutation.mutate({
+      registrationRecordId: String(data.get('tokenRecordId')),
+      votingScopeId: String(data.get('tokenScopeId')),
+      deliveryMethod: String(data.get('deliveryMethod')),
+    });
+  };
+  const downloadActivationPdf = async () => {
+    if (!generatedActivationToken?.qrDataUrl) return;
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(20);
+      pdf.text(t('oneTimeActivationTitle'), 20, 22);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.text(pdf.splitTextToSize(t('activationInstructions'), 170), 20, 34);
+      pdf.addImage(generatedActivationToken.qrDataUrl, 'PNG', 55, 51, 100, 100);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(t('rawActivationToken'), 20, 166);
+      pdf.setFont('courier', 'normal');
+      pdf.setFontSize(9);
+      pdf.text(
+        pdf.splitTextToSize(generatedActivationToken.rawToken, 170),
+        20,
+        173,
+      );
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.text(
+        t('activationTokenPrefix', {
+          prefix: generatedActivationToken.tokenPrefixForSupport,
+        }),
+        20,
+        191,
+      );
+      pdf.setTextColor(160, 30, 30);
+      pdf.text(
+        pdf.splitTextToSize(t('oneTimeActivationWarning'), 170),
+        20,
+        205,
+      );
+      pdf.save(
+        'activation-' + generatedActivationToken.tokenPrefixForSupport + '.pdf',
+      );
+    } catch {
+      setMessage(t('activationPdfFailed'));
+    }
+  };
+  const revokeSelectedActivationToken = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const tokenId = String(data.get('activationTokenId'));
+    if (!tokenId) return;
+    revokeActivationToken.mutate({
+      id: tokenId,
+      reason: String(data.get('revocationReason')),
+    });
   };
   const scopeMutation = useMutation({
     mutationFn: ({
@@ -435,13 +623,21 @@ function Dashboard({ user }: { user: User }) {
   const setEligibility = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const registrationRecordId = String(data.get('recordId'));
+    const votingScopeId = String(data.get('scopeId'));
+    const eligible = data.get('scopeEligible') === 'on';
     registrationMutation.mutate({
-      path: `/api/v1/admin/registrations/${data.get('recordId')}/scopes/${data.get('scopeId')}`,
+      path: `/api/v1/admin/registrations/${registrationRecordId}/scopes/${votingScopeId}`,
       method: 'PUT',
       body: {
-        eligible: data.get('scopeEligible') === 'on',
+        eligible,
         votingWeight: String(data.get('scopeWeight')),
       },
+      ...(eligible
+        ? {}
+        : {
+            invalidatesGeneratedToken: { registrationRecordId, votingScopeId },
+          }),
     });
   };
   const editRegistration = (record: Registration) => {
@@ -461,8 +657,27 @@ function Dashboard({ user }: { user: User }) {
         path: `/api/v1/admin/registrations/${record.id}`,
         method: 'DELETE',
         body: { version: record.version },
+        invalidatesGeneratedToken: { registrationRecordId: record.id },
       });
   };
+  const selectedTokenRecord = registrations.data?.records.find(
+    (record) => record.id === tokenRecordId,
+  );
+  const selectedActiveToken = selectedTokenRecord?.activationTokens?.find(
+    (token) => token.votingScopeId === tokenScopeId,
+  );
+  const importPreviewStart = importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE;
+  const importPreviewRows =
+    importPreview?.rows.slice(
+      importPreviewStart,
+      importPreviewStart + IMPORT_PREVIEW_PAGE_SIZE,
+    ) ?? [];
+  const importPreviewErrors =
+    importPreview?.errors.slice(0, IMPORT_PREVIEW_PAGE_SIZE) ?? [];
+  const importPreviewPageCount = Math.max(
+    1,
+    Math.ceil((importPreview?.rows.length ?? 0) / IMPORT_PREVIEW_PAGE_SIZE),
+  );
   return (
     <main>
       <section className="wide">
@@ -595,6 +810,7 @@ function Dashboard({ user }: { user: User }) {
                     importSelection.current += 1;
                     setImportSource(null);
                     setImportPreview(null);
+                    setImportPreviewPage(0);
                     setImportResult(null);
                   }}
                 />
@@ -614,34 +830,87 @@ function Dashboard({ user }: { user: User }) {
                     rejected: importPreview.summary.rejected,
                   })}
                 </p>
-                {importPreview.rows.slice(0, 100).map((row) => (
-                  <p key={'preview-' + row.row}>
-                    {row.data
-                      ? t('importPreviewValidRow', {
-                          row: row.row,
-                          unit: row.data.unitNumber,
-                          owner: row.data.ownerName,
-                        })
-                      : t('importPreviewRejectedRow', { row: row.row })}
+                {importPreview.rows.length > 0 && (
+                  <p>
+                    {t('importPreviewRange', {
+                      from: importPreviewStart + 1,
+                      to: Math.min(
+                        importPreviewStart + IMPORT_PREVIEW_PAGE_SIZE,
+                        importPreview.rows.length,
+                      ),
+                      total: importPreview.rows.length,
+                    })}
+                  </p>
+                )}
+                {importPreviewErrors.map((error, index) => (
+                  <p
+                    className="error"
+                    key={'file-' + error.row + '-' + error.field + '-' + index}
+                  >
+                    {t('importRowError', {
+                      row: error.row,
+                      field: error.field,
+                      message: localizeImportError(t, error),
+                    })}
                   </p>
                 ))}
-                {[
-                  ...importPreview.errors,
-                  ...importPreview.rows.flatMap((row) => row.errors),
-                ]
-                  .slice(0, 100)
-                  .map((error, index) => (
-                    <p
-                      className="error"
-                      key={error.row + '-' + error.field + '-' + index}
-                    >
-                      {t('importRowError', {
-                        row: error.row,
-                        field: error.field,
-                        message: localizeImportError(t, error),
-                      })}
+                {(importPreview?.errors.length ?? 0) >
+                  IMPORT_PREVIEW_PAGE_SIZE && (
+                  <p className="error">
+                    {t('importFileErrorsTruncated', {
+                      count: IMPORT_PREVIEW_PAGE_SIZE,
+                    })}
+                  </p>
+                )}
+                {importPreviewRows.map((row) => (
+                  <div key={'preview-' + row.row}>
+                    <p>
+                      {row.data
+                        ? t('importPreviewValidRow', {
+                            row: row.row,
+                            unit: row.data.unitNumber,
+                            owner: row.data.ownerName,
+                          })
+                        : t('importPreviewRejectedRow', { row: row.row })}
                     </p>
-                  ))}
+                    {row.errors.map((error, index) => (
+                      <p
+                        className="error"
+                        key={error.row + '-' + error.field + '-' + index}
+                      >
+                        {t('importRowError', {
+                          row: error.row,
+                          field: error.field,
+                          message: localizeImportError(t, error),
+                        })}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+                {importPreviewPageCount > 1 && (
+                  <div>
+                    <button
+                      type="button"
+                      disabled={importPreviewPage === 0}
+                      onClick={() =>
+                        setImportPreviewPage((page) => Math.max(0, page - 1))
+                      }
+                    >
+                      {t('previousImportPreviewPage')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={importPreviewPage >= importPreviewPageCount - 1}
+                      onClick={() =>
+                        setImportPreviewPage((page) =>
+                          Math.min(importPreviewPageCount - 1, page + 1),
+                        )
+                      }
+                    >
+                      {t('nextImportPreviewPage')}
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   disabled={
@@ -711,6 +980,178 @@ function Dashboard({ user }: { user: User }) {
                 {t('saveEligibility')}
               </button>
             </form>
+            <h2>{t('activationTokens')}</h2>
+            <p>{t('activationTokenHelp')}</p>
+            <form onSubmit={generateActivation}>
+              <label>
+                {t('record')}
+                <select
+                  name="tokenRecordId"
+                  value={tokenRecordId}
+                  disabled={generateActivationTokenMutation.isPending}
+                  onChange={(event) => {
+                    setTokenRecordId(event.target.value);
+                    setGeneratedActivationToken(null);
+                    generateActivationTokenMutation.reset();
+                  }}
+                  required
+                >
+                  {registrations.data?.records.map((record) => (
+                    <option key={record.id} value={record.id}>
+                      {record.unitNumber} — {record.ownerName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('scope')}
+                <select
+                  name="tokenScopeId"
+                  value={tokenScopeId}
+                  disabled={generateActivationTokenMutation.isPending}
+                  onChange={(event) => {
+                    setTokenScopeId(event.target.value);
+                    setGeneratedActivationToken(null);
+                    generateActivationTokenMutation.reset();
+                  }}
+                  required
+                >
+                  {scopes.data?.scopes.map((scope) => (
+                    <option key={scope.id} value={scope.id}>
+                      {scope.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('deliveryMethod')}
+                <select name="deliveryMethod" defaultValue="PRINT" required>
+                  <option value="PRINT">{t('deliveryPrint')}</option>
+                  <option value="SECURE_EMAIL">{t('deliveryEmail')}</option>
+                  <option value="MANUAL">{t('deliveryManual')}</option>
+                </select>
+              </label>
+              <button disabled={generateActivationTokenMutation.isPending}>
+                {generateActivationTokenMutation.isPending
+                  ? t('generatingActivationToken')
+                  : selectedActiveToken
+                    ? t('generateReplacementToken')
+                    : t('generateActivationToken')}
+              </button>
+            </form>
+            {selectedActiveToken && (
+              <div className="activation-card">
+                <h3>{t('activeActivationToken')}</h3>
+                <p>
+                  {t('activationTokenPrefix', {
+                    prefix: selectedActiveToken.tokenPrefixForSupport,
+                  })}
+                  <br />
+                  {t('activationTokenExpires', {
+                    date: new Date(
+                      selectedActiveToken.expiresAt,
+                    ).toLocaleString(locale),
+                  })}
+                  <br />
+                  {selectedActiveToken.deliveredAt
+                    ? t('activationTokenDeliveredStatus', {
+                        date: new Date(
+                          selectedActiveToken.deliveredAt,
+                        ).toLocaleString(locale),
+                      })
+                    : t('activationTokenNotDelivered')}
+                </p>
+                <form onSubmit={revokeSelectedActivationToken}>
+                  <input
+                    name="activationTokenId"
+                    type="hidden"
+                    value={selectedActiveToken.id}
+                  />
+                  <label>
+                    {t('revokeReason')}
+                    <input name="revocationReason" minLength={3} required />
+                  </label>
+                  <button
+                    className="secondary"
+                    disabled={revokeActivationToken.isPending}
+                  >
+                    {revokeActivationToken.isPending
+                      ? t('revokingActivationToken')
+                      : t('revokeActivationToken')}
+                  </button>
+                </form>
+              </div>
+            )}
+            {generatedActivationToken && (
+              <div
+                className="activation-card one-time-delivery"
+                role="region"
+                aria-label={t('oneTimeActivationTitle')}
+              >
+                <h3>{t('oneTimeActivationTitle')}</h3>
+                <p className="error">{t('oneTimeActivationWarning')}</p>
+                {generatedActivationToken.qrDataUrl ? (
+                  <img
+                    className="activation-qr"
+                    src={generatedActivationToken.qrDataUrl}
+                    alt={t('activationQrAlt')}
+                  />
+                ) : (
+                  <p className="error">{t('activationQrFallback')}</p>
+                )}
+                <p>{t('activationInstructions')}</p>
+                <label>
+                  {t('rawActivationToken')}
+                  <code className="activation-secret">
+                    {generatedActivationToken.rawToken}
+                  </code>
+                </label>
+                {generatedActivationToken.qrDataUrl && (
+                  <>
+                    <a
+                      className="download-link"
+                      href={generatedActivationToken.qrDataUrl}
+                      download={
+                        'activation-' +
+                        generatedActivationToken.tokenPrefixForSupport +
+                        '.png'
+                      }
+                    >
+                      {t('downloadActivationQr')}
+                    </a>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={downloadActivationPdf}
+                    >
+                      {t('downloadActivationPdf')}
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => window.print()}
+                >
+                  {t('printActivationQr')}
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmActivationTokenDelivery.isPending}
+                  onClick={() =>
+                    confirmActivationTokenDelivery.mutate({
+                      id: generatedActivationToken.id,
+                      deliveryMethod:
+                        generatedActivationToken.deliveryMethod ?? 'MANUAL',
+                    })
+                  }
+                >
+                  {confirmActivationTokenDelivery.isPending
+                    ? t('confirmingSecureDelivery')
+                    : t('confirmSecureDelivery')}
+                </button>
+              </div>
+            )}
           </>
         )}
         <h2>{t('votingScopes')}</h2>

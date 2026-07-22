@@ -395,6 +395,188 @@ export const messages = {
     en: 'Deactivate {unit}? Its history will be preserved.',
     es: '¿Desactivar {unit}? Se conservará su historial.',
   },
+  activationTokens: {
+    description: 'Heading for activation token administration.',
+    en: 'Activation tokens',
+    es: 'Tokens de activación',
+  },
+  activationTokenHelp: {
+    description:
+      'Instructions for selecting a registration and voting scope before managing an activation token.',
+    en: 'Select a registration and scope to generate, replace, deliver, or revoke its activation token.',
+    es: 'Selecciona un registro y ámbito para generar, reemplazar, entregar o revocar su token de activación.',
+  },
+  deliveryMethod: {
+    description:
+      'Label for the method used to securely deliver an activation QR.',
+    en: 'Delivery method',
+    es: 'Método de entrega',
+  },
+  deliveryPrint: {
+    description: 'Printed activation QR delivery option.',
+    en: 'Printed handoff',
+    es: 'Entrega impresa',
+  },
+  deliveryEmail: {
+    description: 'Email activation QR delivery option.',
+    en: 'Secure email',
+    es: 'Correo seguro',
+  },
+  deliveryManual: {
+    description: 'Manual activation QR delivery option.',
+    en: 'Other verified handoff',
+    es: 'Otra entrega verificada',
+  },
+  generateActivationToken: {
+    description: 'Button that generates a new activation token.',
+    en: 'Generate activation token',
+    es: 'Generar token de activación',
+  },
+  generateReplacementToken: {
+    description: 'Button that replaces the current active activation token.',
+    en: 'Replace active token',
+    es: 'Reemplazar token activo',
+  },
+  generatingActivationToken: {
+    description: 'Button text while an activation token and QR are generated.',
+    en: 'Generating token…',
+    es: 'Generando token…',
+  },
+  activeActivationToken: {
+    description: 'Heading for the selected active activation token status.',
+    en: 'Current active token',
+    es: 'Token activo actual',
+  },
+  activationTokenPrefix: {
+    description: 'Activation token non-secret support prefix.',
+    en: 'Support prefix: {prefix}',
+    es: 'Prefijo de soporte: {prefix}',
+  },
+  activationTokenExpires: {
+    description:
+      'Activation token expiration with a substituted localized date.',
+    en: 'Expires: {date}',
+    es: 'Vence: {date}',
+  },
+  activationTokenDeliveredStatus: {
+    description:
+      'Activation token delivery status with a substituted localized date.',
+    en: 'Securely delivered: {date}',
+    es: 'Entregado de forma segura: {date}',
+  },
+  activationTokenNotDelivered: {
+    description: 'Status for an activation token not yet confirmed delivered.',
+    en: 'Delivery has not been confirmed.',
+    es: 'La entrega no ha sido confirmada.',
+  },
+  revokeReason: {
+    description: 'Label for an activation token revocation reason.',
+    en: 'Revocation reason',
+    es: 'Motivo de revocación',
+  },
+  revokeActivationToken: {
+    description: 'Button that revokes an active activation token.',
+    en: 'Revoke active token',
+    es: 'Revocar token activo',
+  },
+  revokingActivationToken: {
+    description: 'Button text while an activation token is revoked.',
+    en: 'Revoking token…',
+    es: 'Revocando token…',
+  },
+  oneTimeActivationTitle: {
+    description: 'Heading for the one-time activation QR display.',
+    en: 'One-time activation QR',
+    es: 'QR de activación de una sola visualización',
+  },
+  oneTimeActivationWarning: {
+    description:
+      'Warning that the raw activation secret cannot be recovered after leaving the screen.',
+    en: 'Download or print this QR now. The secret cannot be displayed again after delivery is confirmed or this page is left.',
+    es: 'Descarga o imprime este QR ahora. El secreto no podrá mostrarse de nuevo después de confirmar la entrega o salir de esta página.',
+  },
+  activationInstructions: {
+    description: 'Printable instructions accompanying an activation QR.',
+    en: 'Scan this QR in the voting client during the activation window. Keep it private; anyone holding it can attempt activation.',
+    es: 'Escanea este QR en el cliente de votación durante el periodo de activación. Mantenlo privado; quien lo posea puede intentar activarlo.',
+  },
+  rawActivationToken: {
+    description: 'Label for the one-time raw activation token fallback.',
+    en: 'One-time token',
+    es: 'Token de una sola visualización',
+  },
+  activationQrAlt: {
+    description: 'Alternative text for the generated activation QR image.',
+    en: 'Activation token QR code',
+    es: 'Código QR del token de activación',
+  },
+  downloadActivationQr: {
+    description: 'Link that downloads the activation QR as a PNG file.',
+    en: 'Download QR as PNG',
+    es: 'Descargar QR como PNG',
+  },
+  downloadActivationPdf: {
+    description:
+      'Button that downloads a one-page PDF containing the activation QR, fallback token, and delivery instructions.',
+    en: 'Download activation PDF',
+    es: 'Descargar PDF de activación',
+  },
+  activationPdfFailed: {
+    description:
+      'Error shown when the browser cannot create the activation delivery PDF.',
+    en: 'The activation PDF could not be created. You can still download the QR as PNG or print it.',
+    es: 'No se pudo crear el PDF de activación. Aún puedes descargar el QR como PNG o imprimirlo.',
+  },
+  printActivationQr: {
+    description:
+      'Button that opens browser printing for the activation QR and instructions.',
+    en: 'Print QR and instructions',
+    es: 'Imprimir QR e instrucciones',
+  },
+  confirmSecureDelivery: {
+    description: 'Button confirming the activation QR was securely delivered.',
+    en: 'Confirm secure delivery and hide secret',
+    es: 'Confirmar entrega segura y ocultar secreto',
+  },
+  confirmingSecureDelivery: {
+    description: 'Button text while secure delivery is confirmed.',
+    en: 'Confirming delivery…',
+    es: 'Confirmando entrega…',
+  },
+  activationTokenGenerated: {
+    description: 'Success status after generating an activation token.',
+    en: 'Activation token generated. Deliver it securely before leaving this screen.',
+    es: 'Token de activación generado. Entrégalo de forma segura antes de salir de esta pantalla.',
+  },
+  activationQrGenerationFailed: {
+    description:
+      'Warning shown when a valid activation token was generated but its QR image could not be rendered locally.',
+    en: 'The token was generated, but the QR could not be created. Securely deliver the one-time token below or generate a replacement.',
+    es: 'El token fue generado, pero no se pudo crear el QR. Entrega de forma segura el token de una sola visualización mostrado abajo o genera un reemplazo.',
+  },
+  activationQrFallback: {
+    description:
+      'Warning inside the one-time delivery card when only the raw activation token fallback is available.',
+    en: 'QR unavailable. Use the one-time token below as the secure fallback.',
+    es: 'QR no disponible. Usa el token de una sola visualización mostrado abajo como alternativa segura.',
+  },
+  activationTokenDelivered: {
+    description:
+      'Success status after confirming secure activation-token delivery.',
+    en: 'Secure delivery confirmed; the raw token has been hidden.',
+    es: 'Entrega segura confirmada; el token sin procesar se ha ocultado.',
+  },
+  activationTokenRevoked: {
+    description: 'Success status after revoking an activation token.',
+    en: 'Activation token revoked.',
+    es: 'Token de activación revocado.',
+  },
+  activationTokenActionFailed: {
+    description:
+      'Generic activation-token action error with a substituted API error code.',
+    en: 'Activation token action failed: {error}',
+    es: 'La acción del token de activación falló: {error}',
+  },
   csvImport: {
     description: 'Heading for importing registration records from a CSV file.',
     en: 'Import CSV',
@@ -431,6 +613,28 @@ export const messages = {
       'CSV preview summary with substituted total, valid, and rejected row counts.',
     en: 'Total: {total}. Valid: {valid}. Rejected: {rejected}.',
     es: 'Total: {total}. Válidas: {valid}. Rechazadas: {rejected}.',
+  },
+  importPreviewRange: {
+    description:
+      'CSV preview pagination range with substituted first, last, and total entry numbers.',
+    en: 'Showing entries {from}–{to} of {total}.',
+    es: 'Mostrando registros {from}–{to} de {total}.',
+  },
+  importFileErrorsTruncated: {
+    description:
+      'Notice that only a bounded number of file-level CSV errors are displayed, with the displayed count substituted.',
+    en: 'Showing the first {count} file-level errors. Correct them and preview the file again to continue.',
+    es: 'Se muestran los primeros {count} errores del archivo. Corrígelos y vuelve a previsualizar el archivo para continuar.',
+  },
+  previousImportPreviewPage: {
+    description: 'Button that shows the previous page of CSV preview rows.',
+    en: 'Previous rows',
+    es: 'Filas anteriores',
+  },
+  nextImportPreviewPage: {
+    description: 'Button that shows the next page of CSV preview rows.',
+    en: 'Next rows',
+    es: 'Filas siguientes',
   },
   importPreviewValidRow: {
     description:

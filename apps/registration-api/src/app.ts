@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerAuthRoutes } from './auth.js';
+import { registerActivationTokenRoutes } from './activation-token-routes.js';
 import type { AppConfig } from './config.js';
 import databasePlugin from './plugins/database.js';
 import { registerImportRoutes } from './imports.js';
@@ -38,6 +39,7 @@ export async function buildApp(
   });
   app.get('/api/v1', async () => ({ service: 'registration-api', version: 1 }));
   registerAuthRoutes(app, config.NODE_ENV === 'production');
+  registerActivationTokenRoutes(app);
   registerScopeRoutes(app);
   registerImportRoutes(app);
   registerRegistrationRoutes(app);

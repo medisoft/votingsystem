@@ -1,4 +1,5 @@
 import {
+  ActivationTokenStatus,
   ActorType,
   Prisma,
   RegistrationStatus,
@@ -38,6 +39,19 @@ const include = {
       votingScope: { select: { id: true, name: true, status: true } },
     },
   },
+  activationTokens: {
+    where: { status: 'ACTIVE' as const },
+    select: {
+      id: true,
+      votingScopeId: true,
+      tokenPrefixForSupport: true,
+      status: true,
+      expiresAt: true,
+      generatedAt: true,
+      deliveryMethod: true,
+      deliveredAt: true,
+    },
+  },
 };
 const auditorSelect = {
   id: true,
@@ -55,6 +69,71 @@ const auditorSelect = {
     },
   },
 } satisfies Prisma.RegistrationRecordSelect;
+
+/**
+ * Invalidates ACTIVE tokens affected by a registration eligibility change.
+ *
+ * @param tx - Prisma transaction containing the registration mutation.
+ * @param where - Registration and optional scope filter for affected tokens.
+ * @param now - Timestamp shared by expiration and revocation transitions.
+ * @param reason - Audit-friendly reason stored on unexpired revoked tokens.
+ * @param audit - Administrator and request context for token audit events.
+ * @returns The number of tokens transitioned to EXPIRED or REVOKED.
+ */
+async function invalidateActiveTokens(
+  tx: Prisma.TransactionClient,
+  where: Pick<
+    Prisma.ActivationTokenWhereInput,
+    'registrationRecordId' | 'votingScopeId'
+  >,
+  now: Date,
+  reason: string,
+  audit: { actorId: string; sourceIp: string; trigger: string },
+) {
+  const expired = await tx.activationToken.updateManyAndReturn({
+    where: {
+      ...where,
+      status: ActivationTokenStatus.ACTIVE,
+      expiresAt: { lte: now },
+    },
+    data: { status: ActivationTokenStatus.EXPIRED },
+    select: { id: true },
+  });
+  const revoked = await tx.activationToken.updateManyAndReturn({
+    where: {
+      ...where,
+      status: ActivationTokenStatus.ACTIVE,
+      expiresAt: { gt: now },
+    },
+    data: {
+      status: ActivationTokenStatus.REVOKED,
+      revokedAt: now,
+      revocationReason: reason,
+    },
+    select: { id: true },
+  });
+  for (const token of expired)
+    await appendAudit(tx, {
+      actorType: ActorType.ADMIN,
+      actorId: audit.actorId,
+      eventType: 'ACTIVATION_TOKEN_EXPIRED',
+      targetType: 'ActivationToken',
+      targetId: token.id,
+      sourceIp: audit.sourceIp,
+      metadata: { reason, trigger: audit.trigger },
+    });
+  for (const token of revoked)
+    await appendAudit(tx, {
+      actorType: ActorType.ADMIN,
+      actorId: audit.actorId,
+      eventType: 'ACTIVATION_TOKEN_REVOKED',
+      targetType: 'ActivationToken',
+      targetId: token.id,
+      sourceIp: audit.sourceIp,
+      metadata: { reason, trigger: audit.trigger },
+    });
+  return expired.length + revoked.length;
+}
 
 export function registerRegistrationRoutes(app: FastifyInstance) {
   app.get(
@@ -206,13 +285,30 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
               );
               if (existing.length) return null;
             }
-            return tx.registrationRecord.updateMany({
+            const updated = await tx.registrationRecord.updateMany({
               where: { id: p.data.id, version, deletedAt: null },
               data: {
                 ...changes,
                 version: { increment: 1 },
               } as Prisma.RegistrationRecordUpdateManyMutationInput,
             });
+            if (
+              updated.count &&
+              (raw.eligible === false ||
+                raw.status === RegistrationStatus.INACTIVE)
+            )
+              await invalidateActiveTokens(
+                tx,
+                { registrationRecordId: p.data.id },
+                new Date(),
+                'Registration became ineligible',
+                {
+                  actorId: request.admin!.id,
+                  sourceIp: request.ip,
+                  trigger: 'REGISTRATION_UPDATED',
+                },
+              );
+            return updated;
           },
           { timeout: IMPORT_TRANSACTION_TIMEOUT_MS },
         );
@@ -253,14 +349,30 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           .safeParse(request.body);
       if (!p.success || !body.success)
         return reply.code(400).send({ code: 'INVALID_REGISTRATION' });
-      const result = await app.prisma.registrationRecord.updateMany({
-        where: { id: p.data.id, version: body.data.version, deletedAt: null },
-        data: {
-          deletedAt: new Date(),
-          status: 'INACTIVE',
-          eligible: false,
-          version: { increment: 1 },
-        },
+      const result = await app.prisma.$transaction(async (tx) => {
+        const deletedAt = new Date();
+        const updated = await tx.registrationRecord.updateMany({
+          where: { id: p.data.id, version: body.data.version, deletedAt: null },
+          data: {
+            deletedAt,
+            status: RegistrationStatus.INACTIVE,
+            eligible: false,
+            version: { increment: 1 },
+          },
+        });
+        if (updated.count)
+          await invalidateActiveTokens(
+            tx,
+            { registrationRecordId: p.data.id },
+            deletedAt,
+            'Registration soft-deleted',
+            {
+              actorId: request.admin!.id,
+              sourceIp: request.ip,
+              trigger: 'REGISTRATION_SOFT_DELETED',
+            },
+          );
+        return updated;
       });
       if (!result.count)
         return reply.code(409).send({ code: 'VERSION_CONFLICT_OR_NOT_FOUND' });
@@ -307,7 +419,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           scope.status !== VotingScopeStatus.REGISTRATION_OPEN
         )
           return 'SCOPE_REGISTRATION_CLOSED' as const;
-        return tx.scopeEligibility.upsert({
+        const eligibility = await tx.scopeEligibility.upsert({
           where: {
             registrationRecordId_votingScopeId: {
               registrationRecordId: record.id,
@@ -321,6 +433,22 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
             votingScopeId: scope.id,
           },
         });
+        if (!body.data.eligible)
+          await invalidateActiveTokens(
+            tx,
+            {
+              registrationRecordId: record.id,
+              votingScopeId: scope.id,
+            },
+            new Date(),
+            'Scope eligibility removed',
+            {
+              actorId: request.admin!.id,
+              sourceIp: request.ip,
+              trigger: 'SCOPE_ELIGIBILITY_SET',
+            },
+          );
+        return eligibility;
       });
       if (!eligibility)
         return reply.code(404).send({ code: 'RECORD_OR_SCOPE_NOT_FOUND' });
