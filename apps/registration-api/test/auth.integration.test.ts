@@ -450,7 +450,21 @@ suite('administrative authentication', () => {
       headers: { cookie },
     });
     expect(search.json().records).toHaveLength(1);
-    const scope = await prisma.votingScope.findFirstOrThrow();
+    const hour = 60 * 60 * 1_000;
+    const activationStartsAt = Date.now() + 24 * hour;
+    const scope = await prisma.votingScope.create({
+      data: {
+        name: 'Registration lifecycle scope',
+        status: 'REGISTRATION_OPEN',
+        activationStartsAt: new Date(activationStartsAt),
+        activationEndsAt: new Date(activationStartsAt + 4 * hour),
+        startsAt: new Date(activationStartsAt + 2 * hour),
+        endsAt: new Date(activationStartsAt + 8 * hour),
+        credentialExpiresAt: new Date(activationStartsAt + 14 * hour),
+        votingWeightsEnabled: true,
+        issuerKeyVersion: 'test-registration-lifecycle',
+      },
+    });
     const eligibility = await app.inject({
       method: 'PUT',
       url: `/api/v1/admin/registrations/${record.id}/scopes/${scope.id}`,
