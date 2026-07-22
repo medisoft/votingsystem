@@ -477,12 +477,14 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
           user: {
             id: 'operator-qr',
             email: 'operator-qr@example.com',
-            role: 'REGISTRATION_OPERATOR',
+            role: 'SYSTEM_ADMIN',
             status: 'ACTIVE',
             createdAt: new Date().toISOString(),
           },
         }),
       };
+    if (path.endsWith('/api/v1/admin/users'))
+      return { ok: true, status: 200, json: async () => ({ users: [] }) };
     if (path.endsWith('/api/v1/admin/scopes'))
       return {
         ok: true,
@@ -689,4 +691,40 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     screen.getByRole('region', { name: 'One-time activation QR' }),
   ).toBeInTheDocument();
   expect(screen.getByText('opaque-activation-token')).toBeInTheDocument();
+
+  generationFails = false;
+  fireEvent.click(screen.getByLabelText('Eligible in this scope'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save eligibility' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'One-time activation QR' }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining(
+      '/api/v1/admin/registrations/record-1/scopes/scope-1',
+    ),
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ eligible: false, votingWeight: '1.0000' }),
+    }),
+  );
+
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Replace active token' }),
+  );
+  expect(
+    await screen.findByRole('region', { name: 'One-time activation QR' }),
+  ).toBeInTheDocument();
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'One-time activation QR' }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/registrations/record-1'),
+    expect.objectContaining({ method: 'DELETE' }),
+  );
 });

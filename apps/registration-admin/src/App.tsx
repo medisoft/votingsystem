@@ -69,6 +69,10 @@ interface GeneratedActivationToken extends ActivationTokenSummary {
   rawToken: string;
   qrDataUrl: string | null;
 }
+interface GeneratedTokenInvalidationTarget {
+  registrationRecordId: string;
+  votingScopeId?: string;
+}
 interface CsvImportPreview {
   fileHash: string;
   summary: { total: number; valid: number; rejected: number };
@@ -289,12 +293,22 @@ function Dashboard({ user }: { user: User }) {
       path: string;
       body?: unknown;
       method?: string;
+      invalidatesGeneratedToken?: GeneratedTokenInvalidationTarget;
     }) =>
       api(path, {
         method,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
-    onSuccess: () => {
+    onSuccess: (_result, input) => {
+      const target = input.invalidatesGeneratedToken;
+      if (
+        target &&
+        generatedActivationToken?.registrationRecordId ===
+          target.registrationRecordId &&
+        (!target.votingScopeId ||
+          generatedActivationToken.votingScopeId === target.votingScopeId)
+      )
+        setGeneratedActivationToken(null);
       setMessage(t('recordUpdated'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
     },
@@ -609,13 +623,21 @@ function Dashboard({ user }: { user: User }) {
   const setEligibility = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const registrationRecordId = String(data.get('recordId'));
+    const votingScopeId = String(data.get('scopeId'));
+    const eligible = data.get('scopeEligible') === 'on';
     registrationMutation.mutate({
-      path: `/api/v1/admin/registrations/${data.get('recordId')}/scopes/${data.get('scopeId')}`,
+      path: `/api/v1/admin/registrations/${registrationRecordId}/scopes/${votingScopeId}`,
       method: 'PUT',
       body: {
-        eligible: data.get('scopeEligible') === 'on',
+        eligible,
         votingWeight: String(data.get('scopeWeight')),
       },
+      ...(eligible
+        ? {}
+        : {
+            invalidatesGeneratedToken: { registrationRecordId, votingScopeId },
+          }),
     });
   };
   const editRegistration = (record: Registration) => {
@@ -635,6 +657,7 @@ function Dashboard({ user }: { user: User }) {
         path: `/api/v1/admin/registrations/${record.id}`,
         method: 'DELETE',
         body: { version: record.version },
+        invalidatesGeneratedToken: { registrationRecordId: record.id },
       });
   };
   const selectedTokenRecord = registrations.data?.records.find(

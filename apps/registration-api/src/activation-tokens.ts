@@ -9,10 +9,22 @@ export interface GeneratedActivationToken {
   tokenPrefixForSupport: string;
 }
 
+/**
+ * Hashes an opaque activation token exactly as received using SHA-256.
+ *
+ * @param rawToken - URL-safe activation token whose UTF-8 bytes are hashed without normalization.
+ * @returns The lowercase 64-character hexadecimal digest used for storage and lookup.
+ */
 export function hashActivationToken(rawToken: string) {
   return createHash('sha256').update(rawToken, 'utf8').digest('hex');
 }
 
+/**
+ * Creates a new 256-bit opaque activation token and its safe stored derivatives.
+ *
+ * @returns The one-time URL-safe raw token, its SHA-256 hexadecimal hash, and
+ * the first eight raw-token characters used only as a support prefix.
+ */
 export function generateActivationToken(): GeneratedActivationToken {
   const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString('base64url');
   return {

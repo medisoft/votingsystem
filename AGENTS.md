@@ -25,5 +25,6 @@
 - Document functions parameters and responses using jsdoc, javadoc, or the default for each language.
 
 ## Pre-Commit tasks
+
 - After new code changes are done, run a code review on the new code and surroundings, and fix new issues.
 - Ensure that you don't loop forever on new code -> code reviews -> fix problems -> code reviews -> fix problems.
