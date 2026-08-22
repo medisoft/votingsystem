@@ -67,13 +67,13 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 
 Authenticated administrators can list voting scopes. System administrators can create and edit scopes and advance them through DRAFT, REGISTRATION_OPEN, ACTIVATION_OPEN, VOTING_ACTIVE, CLOSED, and ARCHIVED. Transitions are one-way, date ranges are validated, optimistic versions reject stale writes, and every mutation is audited.
 
-The current UI supports creation, name editing while editable, and explicit forward transitions. Full detail-page editing and privileged exceptional rollback are deferred.
+The current UI supports creation, field editing while DRAFT or REGISTRATION_OPEN, explicit forward transitions, and a privileged SYSTEM_ADMIN rollback from CLOSED to VOTING_ACTIVE with a recorded reason.
 
 Activation and voting windows may overlap. Each window must be internally ordered, and credential expiration must be after both windows end.
 
 ## Stage 4 registration records
 
-Administrators and registration operators can create, search, update, and assign per-scope eligibility to voting-entitlement records. Weights use PostgreSQL DECIMAL(12,4), never floating-point storage. System administrators may soft-delete records; auditors have read-only access. All mutations are audited and stale updates are rejected using record versions.
+Administrators and registration operators can create, search, filter, update, and assign per-scope eligibility to voting-entitlement records. Filters cover status, global eligibility, and whether an active activation token exists. The edit form covers unit, owner, representative, contact, weight, eligibility, status, and notes, and shows that record’s audit history. Weights use PostgreSQL DECIMAL(12,4), never floating-point storage. System administrators may soft-delete records; auditors have read-only access. All mutations are audited and stale updates are rejected using record versions.
 
 ## Stage 4.1 internationalization
 

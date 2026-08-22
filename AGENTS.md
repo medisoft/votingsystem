@@ -68,6 +68,11 @@ integration tests at the development database `registration` on port `15432`.
 - The suite must refuse to reset any database not named `registration_test`,
   even if `ALLOW_DATABASE_RESET` is set.
 
+
+## Commits and General commands
+
+- When asked to create a commit, in the commit description, start with [Stage #] - Short Functionallity and then add the list of changes below.
+
 ---
 
 # Part 2 — Shared (any project)

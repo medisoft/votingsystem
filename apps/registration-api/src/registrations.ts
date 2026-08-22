@@ -145,6 +145,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           search: z.string().optional(),
           eligible: z.enum(['true', 'false']).optional(),
           status: z.nativeEnum(RegistrationStatus).optional(),
+          hasActiveToken: z.enum(['true', 'false']).optional(),
         })
         .safeParse(request.query);
       if (!parsed.success)
@@ -157,6 +158,15 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           deletedAt: null,
           ...(q.eligible ? { eligible: q.eligible === 'true' } : {}),
           ...(q.status ? { status: q.status } : {}),
+          ...(q.hasActiveToken
+            ? {
+                activationTokens: {
+                  [q.hasActiveToken === 'true' ? 'some' : 'none']: {
+                    status: ActivationTokenStatus.ACTIVE,
+                  },
+                },
+              }
+            : {}),
           ...(q.search
             ? {
                 OR: [

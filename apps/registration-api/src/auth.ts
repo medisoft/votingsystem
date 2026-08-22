@@ -456,21 +456,37 @@ export function registerAuthRoutes(
   app.get(
     '/api/v1/admin/audit-events',
     { preHandler: authenticate },
-    async () => ({
-      events: await app.prisma.auditEvent.findMany({
-        orderBy: { occurredAt: 'desc' },
-        take: 100,
-        select: {
-          id: true,
-          occurredAt: true,
-          eventType: true,
-          actorType: true,
-          actorId: true,
-          targetType: true,
-          targetId: true,
-          metadata: true,
-        },
-      }),
-    }),
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          targetId: z.string().uuid().optional(),
+          targetType: z.string().trim().min(1).max(100).optional(),
+        })
+        .safeParse(request.query);
+      if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_QUERY' });
+      return {
+        events: await app.prisma.auditEvent.findMany({
+          where: {
+            ...(parsed.data.targetId ? { targetId: parsed.data.targetId } : {}),
+            ...(parsed.data.targetType
+              ? { targetType: parsed.data.targetType }
+              : {}),
+          },
+          orderBy: { occurredAt: 'desc' },
+          take: 100,
+          select: {
+            id: true,
+            occurredAt: true,
+            eventType: true,
+            actorType: true,
+            actorId: true,
+            targetType: true,
+            targetId: true,
+            metadata: true,
+          },
+        }),
+      };
+    },
   );
 }

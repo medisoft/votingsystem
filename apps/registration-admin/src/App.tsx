@@ -7,6 +7,44 @@ import { createTranslator, detectLocale } from './i18n';
 // Vite proxies /api to the registration API during local/container development.
 const apiUrl = import.meta.env.VITE_API_URL || '';
 const IMPORT_PREVIEW_PAGE_SIZE = 100;
+/**
+ * Formats an ISO timestamp for a datetime-local input.
+ *
+ * @param iso - Instant stored by the API.
+ * @returns A value accepted by datetime-local inputs in the local timezone.
+ */
+function datetimeLocalValue(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+}
+/**
+ * Reads voting-scope fields from an administrative form.
+ *
+ * @param data - Submitted form values, including datetime-local inputs.
+ */
+function scopeFieldsFromForm(data: FormData) {
+  return {
+    name: String(data.get('name')),
+    description: String(data.get('description')) || null,
+    activationStartsAt: new Date(String(data.get('activationStartsAt'))),
+    activationEndsAt: new Date(String(data.get('activationEndsAt'))),
+    startsAt: new Date(String(data.get('startsAt'))),
+    endsAt: new Date(String(data.get('endsAt'))),
+    credentialExpiresAt: new Date(String(data.get('credentialExpiresAt'))),
+    votingWeightsEnabled: data.get('votingWeightsEnabled') === 'on',
+    issuerKeyVersion: String(data.get('issuerKeyVersion')),
+  };
+}
+interface AuditEvent {
+  id: string;
+  occurredAt: string;
+  eventType: string;
+  actorType: string;
+  targetType: string;
+  targetId: string | null;
+}
 type Role = 'SYSTEM_ADMIN' | 'REGISTRATION_OPERATOR' | 'AUDITOR';
 interface User {
   id: string;
@@ -47,6 +85,7 @@ interface Registration {
   votingWeight: string;
   eligible: boolean;
   status: 'ACTIVE' | 'INACTIVE';
+  notes?: string | null;
   version: number;
   scopeEligibilities: Array<{
     eligible: boolean;
@@ -304,11 +343,42 @@ function Dashboard({ user }: { user: User }) {
     queryFn: () => api<{ scopes: Scope[] }>('/api/v1/admin/scopes'),
   });
   const [registrationSearch, setRegistrationSearch] = useState('');
+  const [registrationStatus, setRegistrationStatus] = useState('');
+  const [registrationEligible, setRegistrationEligible] = useState('');
+  const [registrationActivation, setRegistrationActivation] = useState('');
+  const [editingRecord, setEditingRecord] = useState<Registration | null>(null);
+  const [editingScope, setEditingScope] = useState<Scope | null>(null);
   const registrations = useQuery({
-    queryKey: ['registrations', registrationSearch],
+    queryKey: [
+      'registrations',
+      registrationSearch,
+      registrationStatus,
+      registrationEligible,
+      registrationActivation,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (registrationSearch) params.set('search', registrationSearch);
+      if (registrationStatus) params.set('status', registrationStatus);
+      if (registrationEligible) params.set('eligible', registrationEligible);
+      if (registrationActivation)
+        params.set('hasActiveToken', registrationActivation);
+      const query = params.toString();
+      return api<{ records: Registration[] }>(
+        `/api/v1/admin/registrations${query ? `?${query}` : ''}`,
+      );
+    },
+  });
+  const recentAuditEvents = useQuery({
+    queryKey: ['audit-events'],
+    queryFn: () => api<{ events: AuditEvent[] }>('/api/v1/admin/audit-events'),
+  });
+  const recordHistory = useQuery({
+    queryKey: ['audit-events', editingRecord?.id],
+    enabled: Boolean(editingRecord),
     queryFn: () =>
-      api<{ records: Registration[] }>(
-        `/api/v1/admin/registrations?search=${encodeURIComponent(registrationSearch)}`,
+      api<{ events: AuditEvent[] }>(
+        `/api/v1/admin/audit-events?targetType=RegistrationRecord&targetId=${editingRecord!.id}`,
       ),
   });
   useEffect(() => {
@@ -342,8 +412,10 @@ function Dashboard({ user }: { user: User }) {
           generatedActivationToken.votingScopeId === target.votingScopeId)
       )
         setGeneratedActivationToken(null);
+      setEditingRecord(null);
       setMessage(t('recordUpdated'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
+      void client.invalidateQueries({ queryKey: ['audit-events'] });
     },
     onError: (error) =>
       setMessage(t('recordSaveFailed', { error: error.message })),
@@ -563,8 +635,10 @@ function Dashboard({ user }: { user: User }) {
       method?: string;
     }) => api(path, { method, body: JSON.stringify(body) }),
     onSuccess: () => {
+      setEditingScope(null);
       setMessage(t('scopeUpdated'));
       void client.invalidateQueries({ queryKey: ['scopes'] });
+      void client.invalidateQueries({ queryKey: ['audit-events'] });
     },
     onError: (error) =>
       setMessage(t('scopeSaveFailed', { error: error.message })),
@@ -700,34 +774,28 @@ function Dashboard({ user }: { user: User }) {
     const data = new FormData(event.currentTarget);
     scopeMutation.mutate({
       path: '/api/v1/admin/scopes',
-      body: {
-        name: String(data.get('name')),
-        description: String(data.get('description')) || null,
-        activationStartsAt: new Date(
-          String(data.get('activationStartsAt')),
-        ).toISOString(),
-        activationEndsAt: new Date(
-          String(data.get('activationEndsAt')),
-        ).toISOString(),
-        startsAt: new Date(String(data.get('startsAt'))).toISOString(),
-        endsAt: new Date(String(data.get('endsAt'))).toISOString(),
-        credentialExpiresAt: new Date(
-          String(data.get('credentialExpiresAt')),
-        ).toISOString(),
-        votingWeightsEnabled: data.get('votingWeightsEnabled') === 'on',
-        issuerKeyVersion: String(data.get('issuerKeyVersion')),
-      },
+      body: scopeFieldsFromForm(data),
     });
   };
-  const renameScope = (scope: Scope) => {
-    const name = window.prompt(t('newScopeName'), scope.name);
-    if (name && name.trim() !== scope.name)
-      scopeMutation.mutate({
-        path: `/api/v1/admin/scopes/${scope.id}`,
-        method: 'PATCH',
-        body: { name: name.trim(), version: scope.version },
-      });
+  const saveScope = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingScope) return;
+    const data = new FormData(event.currentTarget);
+    scopeMutation.mutate({
+      path: `/api/v1/admin/scopes/${editingScope.id}`,
+      method: 'PATCH',
+      body: { ...scopeFieldsFromForm(data), version: editingScope.version },
+    });
   };
+  const rollbackScope = (scope: Scope) => {
+    const reason = window.prompt(t('rollbackReasonPrompt'));
+    if (!reason || reason.trim().length < 3) return;
+    scopeMutation.mutate({
+      path: `/api/v1/admin/scopes/${scope.id}/rollback`,
+      body: { version: scope.version, reason: reason.trim() },
+    });
+  };
+
   const createRegistration = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -766,14 +834,33 @@ function Dashboard({ user }: { user: User }) {
           }),
     });
   };
-  const editRegistration = (record: Registration) => {
-    const ownerName = window.prompt(t('ownerNamePrompt'), record.ownerName);
-    if (ownerName && ownerName.trim() !== record.ownerName)
-      registrationMutation.mutate({
-        path: `/api/v1/admin/registrations/${record.id}`,
-        method: 'PATCH',
-        body: { ownerName: ownerName.trim(), version: record.version },
-      });
+  const saveRecord = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingRecord) return;
+    const data = new FormData(event.currentTarget);
+    registrationMutation.mutate({
+      path: `/api/v1/admin/registrations/${editingRecord.id}`,
+      method: 'PATCH',
+      body: {
+        unitNumber: String(data.get('unitNumber')),
+        ownerName: String(data.get('ownerName')),
+        representativeName: String(data.get('representativeName')) || null,
+        email: String(data.get('recordEmail')) || null,
+        phone: String(data.get('phone')) || null,
+        votingWeight: String(data.get('votingWeight')),
+        eligible: data.get('eligible') === 'on',
+        status: String(data.get('status')),
+        notes: String(data.get('notes')) || null,
+        version: editingRecord.version,
+      },
+      ...(data.get('eligible') === 'on'
+        ? {}
+        : {
+            invalidatesGeneratedToken: {
+              registrationRecordId: editingRecord.id,
+            },
+          }),
+    });
   };
   const deleteRegistration = (record: Registration) => {
     if (
@@ -921,6 +1008,43 @@ function Dashboard({ user }: { user: User }) {
             />
           </label>
         )}
+        <label>
+          {t('recordStatus')}
+          <select
+            value={registrationStatus}
+            onChange={(event) => setRegistrationStatus(event.target.value)}
+          >
+            <option value="">{t('filterAll')}</option>
+            <option value="ACTIVE">{t('statusActive')}</option>
+            <option value="INACTIVE">{t('statusInactive')}</option>
+          </select>
+        </label>
+        <label>
+          {t('eligible')}
+          <select
+            value={registrationEligible}
+            onChange={(event) => setRegistrationEligible(event.target.value)}
+          >
+            <option value="">{t('filterAll')}</option>
+            <option value="true">{t('filterEligible')}</option>
+            <option value="false">{t('filterIneligible')}</option>
+          </select>
+        </label>
+        {user.role !== 'AUDITOR' && (
+          <label>
+            {t('activationTokens')}
+            <select
+              value={registrationActivation}
+              onChange={(event) =>
+                setRegistrationActivation(event.target.value)
+              }
+            >
+              <option value="">{t('filterAll')}</option>
+              <option value="true">{t('filterActiveToken')}</option>
+              <option value="false">{t('filterNoActiveToken')}</option>
+            </select>
+          </label>
+        )}
         <ul>
           {registrations.data?.records.map((record) => (
             <li key={record.id}>
@@ -947,9 +1071,9 @@ function Dashboard({ user }: { user: User }) {
                     <br />
                     <button
                       className="small secondary"
-                      onClick={() => editRegistration(record)}
+                      onClick={() => setEditingRecord(record)}
                     >
-                      {t('editOwner')}
+                      {t('editRecord')}
                     </button>
                   </>
                 )}
@@ -968,6 +1092,98 @@ function Dashboard({ user }: { user: User }) {
             </li>
           ))}
         </ul>
+        {editingRecord && user.role !== 'AUDITOR' && (
+          <>
+            <h2>{t('editRecord')}</h2>
+            <form key={editingRecord.id} onSubmit={saveRecord}>
+              <label>
+                {t('unit')}
+                <input
+                  name="unitNumber"
+                  defaultValue={editingRecord.unitNumber}
+                  required
+                />
+              </label>
+              <label>
+                {t('owner')}
+                <input
+                  name="ownerName"
+                  defaultValue={editingRecord.ownerName}
+                  required
+                />
+              </label>
+              <label>
+                {t('representative')}
+                <input
+                  name="representativeName"
+                  defaultValue={editingRecord.representativeName ?? ''}
+                />
+              </label>
+              <label>
+                {t('email')}
+                <input
+                  name="recordEmail"
+                  type="email"
+                  defaultValue={editingRecord.email ?? ''}
+                />
+              </label>
+              <label>
+                {t('phone')}
+                <input name="phone" defaultValue={editingRecord.phone ?? ''} />
+              </label>
+              <label>
+                {t('votingWeight')}
+                <input
+                  name="votingWeight"
+                  inputMode="decimal"
+                  defaultValue={editingRecord.votingWeight}
+                  pattern="\d+(\.\d{1,4})?"
+                  required
+                />
+              </label>
+              <label>
+                {t('recordStatus')}
+                <select name="status" defaultValue={editingRecord.status}>
+                  <option value="ACTIVE">{t('statusActive')}</option>
+                  <option value="INACTIVE">{t('statusInactive')}</option>
+                </select>
+              </label>
+              <label className="check">
+                <input
+                  name="eligible"
+                  type="checkbox"
+                  defaultChecked={editingRecord.eligible}
+                />
+                {t('globallyEligible')}
+              </label>
+              <label>
+                {t('notes')}
+                <input name="notes" defaultValue={editingRecord.notes ?? ''} />
+              </label>
+              <button disabled={registrationMutation.isPending}>
+                {t('saveRecord')}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setEditingRecord(null)}
+              >
+                {t('cancelEdit')}
+              </button>
+            </form>
+            <h3>{t('recordHistory')}</h3>
+            <ul>
+              {recordHistory.data?.events.length
+                ? recordHistory.data.events.map((event) => (
+                    <li key={event.id}>
+                      {new Date(event.occurredAt).toLocaleString(locale)} ·{' '}
+                      {event.eventType}
+                    </li>
+                  ))
+                : t('noAuditEvents')}
+            </ul>
+          </>
+        )}
         {user.role !== 'AUDITOR' && (
           <>
             <h2>{t('createRecord')}</h2>
@@ -1388,12 +1604,23 @@ function Dashboard({ user }: { user: User }) {
                       <br />
                       <button
                         className="small secondary"
-                        onClick={() => renameScope(scope)}
+                        onClick={() => setEditingScope(scope)}
                       >
-                        {t('editName')}
+                        {t('editScope')}
                       </button>
                     </>
                   )}
+                {user.role === 'SYSTEM_ADMIN' && scope.status === 'CLOSED' && (
+                  <>
+                    <br />
+                    <button
+                      className="small secondary"
+                      onClick={() => rollbackScope(scope)}
+                    >
+                      {t('rollbackToVoting')}
+                    </button>
+                  </>
+                )}
                 {user.role === 'SYSTEM_ADMIN' && nextStatus[scope.status] && (
                   <>
                     <br />
@@ -1419,6 +1646,101 @@ function Dashboard({ user }: { user: User }) {
             </li>
           ))}
         </ul>
+        {user.role === 'SYSTEM_ADMIN' && editingScope && (
+          <>
+            <h2>{t('editScope')}</h2>
+            <form key={editingScope.id} onSubmit={saveScope}>
+              <label>
+                {t('name')}
+                <input name="name" defaultValue={editingScope.name} required />
+              </label>
+              <label>
+                {t('description')}
+                <input
+                  name="description"
+                  defaultValue={editingScope.description ?? ''}
+                />
+              </label>
+              <label>
+                {t('activationStart')}
+                <input
+                  name="activationStartsAt"
+                  type="datetime-local"
+                  defaultValue={datetimeLocalValue(
+                    editingScope.activationStartsAt,
+                  )}
+                  required
+                />
+              </label>
+              <label>
+                {t('activationEnd')}
+                <input
+                  name="activationEndsAt"
+                  type="datetime-local"
+                  defaultValue={datetimeLocalValue(
+                    editingScope.activationEndsAt,
+                  )}
+                  required
+                />
+              </label>
+              <label>
+                {t('votingStart')}
+                <input
+                  name="startsAt"
+                  type="datetime-local"
+                  defaultValue={datetimeLocalValue(editingScope.startsAt)}
+                  required
+                />
+              </label>
+              <label>
+                {t('votingEnd')}
+                <input
+                  name="endsAt"
+                  type="datetime-local"
+                  defaultValue={datetimeLocalValue(editingScope.endsAt)}
+                  required
+                />
+              </label>
+              <label>
+                {t('credentialExpiration')}
+                <input
+                  name="credentialExpiresAt"
+                  type="datetime-local"
+                  defaultValue={datetimeLocalValue(
+                    editingScope.credentialExpiresAt,
+                  )}
+                  required
+                />
+              </label>
+              <label>
+                {t('issuerKeyVersion')}
+                <input
+                  name="issuerKeyVersion"
+                  defaultValue={editingScope.issuerKeyVersion}
+                  required
+                />
+              </label>
+              <label className="check">
+                <input
+                  name="votingWeightsEnabled"
+                  type="checkbox"
+                  defaultChecked={editingScope.votingWeightsEnabled}
+                />
+                {t('weightedVoting')}
+              </label>
+              <button disabled={scopeMutation.isPending}>
+                {t('saveScope')}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setEditingScope(null)}
+              >
+                {t('cancelEdit')}
+              </button>
+            </form>
+          </>
+        )}
         {user.role === 'SYSTEM_ADMIN' && (
           <>
             <h2>{t('createScope')}</h2>
@@ -1527,6 +1849,18 @@ function Dashboard({ user }: { user: User }) {
         ) : (
           <p>{t('restrictedRoleNotice')}</p>
         )}
+        <h2>{t('auditEvents')}</h2>
+        <ul>
+          {recentAuditEvents.data?.events.length
+            ? recentAuditEvents.data.events.map((event) => (
+                <li key={event.id}>
+                  {new Date(event.occurredAt).toLocaleString(locale)} ·{' '}
+                  {event.eventType}
+                  {event.targetType ? ` · ${event.targetType}` : ''}
+                </li>
+              ))
+            : t('noAuditEvents')}
+        </ul>
       </section>
     </main>
   );

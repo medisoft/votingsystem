@@ -1558,4 +1558,99 @@ INVALID-ONLY,
     expect(disabled.statusCode).toBe(200);
     expect(disabled.json().user.totpEnabled).toBe(false);
   });
+
+  it('edits a scope, rolls a closed scope back, and filters registrations', async () => {
+    const headersFor = (cookie?: string) => ({
+      remoteAddress: '127.0.0.50',
+      ...(cookie ? { headers: { cookie } } : {}),
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+      ...headersFor(),
+    });
+    expect(login.statusCode).toBe(200);
+    const cookie = (
+      Array.isArray(login.headers['set-cookie'])
+        ? login.headers['set-cookie'][0]!
+        : login.headers['set-cookie']!
+    ).split(';')[0]!;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/scopes',
+      headers: { cookie },
+      payload: {
+        name: 'Rollback scope',
+        description: 'Initial',
+        activationStartsAt: '2031-01-01T10:00:00Z',
+        activationEndsAt: '2031-01-01T14:00:00Z',
+        startsAt: '2031-01-01T12:00:00Z',
+        endsAt: '2031-01-01T18:00:00Z',
+        credentialExpiresAt: '2031-01-02T00:00:00Z',
+        votingWeightsEnabled: false,
+        issuerKeyVersion: '2031-01',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const scope = created.json().scope;
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/scopes/${scope.id}`,
+      headers: { cookie },
+      payload: { description: 'Updated description', version: scope.version },
+    });
+    expect(edited.statusCode).toBe(200);
+    await prisma.votingScope.update({
+      where: { id: scope.id },
+      data: { status: 'CLOSED', version: { increment: 1 } },
+    });
+    const closed = await prisma.votingScope.findUniqueOrThrow({
+      where: { id: scope.id },
+    });
+    const rolled = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/scopes/${scope.id}/rollback`,
+      headers: { cookie },
+      payload: { version: closed.version, reason: 'Resume voting window' },
+    });
+    expect(rolled.statusCode).toBe(200);
+    expect(rolled.json().scope.status).toBe('VOTING_ACTIVE');
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/v1/admin/scopes/${scope.id}/rollback`,
+          headers: { cookie },
+          payload: {
+            version: rolled.json().scope.version,
+            reason: 'Already voting',
+          },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/registrations?status=ACTIVE&eligible=true&hasActiveToken=false',
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const history = await app.inject({
+      url: `/api/v1/admin/audit-events?targetType=VotingScope&targetId=${scope.id}`,
+      headers: { cookie },
+    });
+    expect(
+      history
+        .json()
+        .events.map((event: { eventType: string }) => event.eventType),
+    ).toEqual(
+      expect.arrayContaining([
+        'VOTING_SCOPE_CREATED',
+        'VOTING_SCOPE_UPDATED',
+        'VOTING_SCOPE_ROLLED_BACK',
+      ]),
+    );
+  });
 });

@@ -335,6 +335,105 @@ export const messages = {
     en: 'Edit name',
     es: 'Editar nombre',
   },
+  editScope: {
+    description: 'Button that opens the voting-scope edit form.',
+    en: 'Edit scope',
+    es: 'Editar alcance',
+  },
+  saveScope: {
+    description: 'Button that saves voting-scope field changes.',
+    en: 'Save scope',
+    es: 'Guardar alcance',
+  },
+  cancelEdit: {
+    description: 'Button that closes an edit form without saving.',
+    en: 'Cancel',
+    es: 'Cancelar',
+  },
+  rollbackToVoting: {
+    description:
+      'Button for the privileged rollback of a closed scope to voting-active.',
+    en: 'Return to voting',
+    es: 'Volver a votación',
+  },
+  rollbackReasonPrompt: {
+    description: 'Prompt asking why a closed voting scope is being reopened.',
+    en: 'Reason for returning this closed scope to voting',
+    es: 'Motivo para devolver este alcance cerrado a votación',
+  },
+  editRecord: {
+    description: 'Button that opens the registration-record edit form.',
+    en: 'Edit record',
+    es: 'Editar registro',
+  },
+  saveRecord: {
+    description: 'Button that saves registration-record field changes.',
+    en: 'Save record',
+    es: 'Guardar registro',
+  },
+  recordStatus: {
+    description: 'Label for the registration record active/inactive status.',
+    en: 'Status',
+    es: 'Estado',
+  },
+  statusActive: {
+    description: 'Active registration-record status label.',
+    en: 'Active',
+    es: 'Activo',
+  },
+  statusInactive: {
+    description: 'Inactive registration-record status label.',
+    en: 'Inactive',
+    es: 'Inactivo',
+  },
+  filterAll: {
+    description: 'Filter option that does not restrict the registration list.',
+    en: 'All',
+    es: 'Todos',
+  },
+  filterEligible: {
+    description: 'Filter option for globally eligible registration records.',
+    en: 'Eligible',
+    es: 'Elegibles',
+  },
+  filterIneligible: {
+    description: 'Filter option for globally ineligible registration records.',
+    en: 'Ineligible',
+    es: 'No elegibles',
+  },
+  filterActiveToken: {
+    description:
+      'Filter option for records that have an active activation token.',
+    en: 'Has active token',
+    es: 'Con token activo',
+  },
+  filterNoActiveToken: {
+    description:
+      'Filter option for records that do not have an active activation token.',
+    en: 'No active token',
+    es: 'Sin token activo',
+  },
+  recordHistory: {
+    description: 'Heading for audit events tied to the selected registration.',
+    en: 'Record history',
+    es: 'Historial del registro',
+  },
+  auditEvents: {
+    description: 'Heading for the recent administrative audit event list.',
+    en: 'Recent audit events',
+    es: 'Eventos de auditoría recientes',
+  },
+  noAuditEvents: {
+    description: 'Empty state when no audit events match the current view.',
+    en: 'No audit events.',
+    es: 'No hay eventos de auditoría.',
+  },
+  globallyEligible: {
+    description:
+      'Checkbox that marks a registration record as globally eligible.',
+    en: 'Eligible to vote',
+    es: 'Elegible para votar',
+  },
   advanceTo: {
     description:
       'Button label for advancing a scope to its next status; status is substituted.',
