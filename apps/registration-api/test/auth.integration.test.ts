@@ -6,6 +6,7 @@ import {
   generateActivationToken,
   hashActivationToken,
 } from '../src/activation-tokens.js';
+import { generateTotpCode } from '../src/totp.js';
 import {
   IMPORT_TRANSACTION_TIMEOUT_MS,
   REGISTRATION_WRITE_LOCK,
@@ -1415,5 +1416,146 @@ INVALID-ONLY,
         })
       ).statusCode,
     ).toBe(429);
+  });
+
+  it('changes password and requires enrolled TOTP at login', async () => {
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const adminCookie = (
+      Array.isArray(adminLogin.headers['set-cookie'])
+        ? adminLogin.headers['set-cookie'][0]!
+        : adminLogin.headers['set-cookie']!
+    ).split(';')[0]!;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/users',
+      headers: { cookie: adminCookie },
+      payload: {
+        email: 'security@example.com',
+        password: 'initial-password',
+        role: 'REGISTRATION_OPERATOR',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().user.totpEnabled).toBe(false);
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: { email: 'security@example.com', password: 'initial-password' },
+    });
+    expect(login.statusCode).toBe(200);
+    const cookie = (
+      Array.isArray(login.headers['set-cookie'])
+        ? login.headers['set-cookie'][0]!
+        : login.headers['set-cookie']!
+    ).split(';')[0]!;
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/auth/password',
+          headers: { cookie },
+          payload: {
+            currentPassword: 'wrong-password',
+            newPassword: 'changed-password',
+          },
+        })
+      ).statusCode,
+    ).toBe(401);
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/password',
+      headers: { cookie },
+      payload: {
+        currentPassword: 'initial-password',
+        newPassword: 'changed-password',
+      },
+    });
+    expect(changed.statusCode).toBe(200);
+    const relogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: {
+        email: 'security@example.com',
+        password: 'changed-password',
+      },
+    });
+    expect(relogin.statusCode).toBe(200);
+    const nextCookie = (
+      Array.isArray(relogin.headers['set-cookie'])
+        ? relogin.headers['set-cookie'][0]!
+        : relogin.headers['set-cookie']!
+    ).split(';')[0]!;
+    const setup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/totp/setup',
+      headers: { cookie: nextCookie },
+    });
+    expect(setup.statusCode).toBe(200);
+    const secret = setup.json().secret as string;
+    expect(setup.json().otpauthUrl).toContain('otpauth://totp/');
+    expect(
+      JSON.stringify(await prisma.auditEvent.findMany({ take: 20 })),
+    ).not.toContain(secret);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/auth/totp/confirm',
+          headers: { cookie: nextCookie },
+          payload: { totp: '000000' },
+        })
+      ).json().code,
+    ).toBe('TOTP_INVALID');
+    const enabled = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/totp/confirm',
+      headers: { cookie: nextCookie },
+      payload: { totp: generateTotpCode(secret) },
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().user.totpEnabled).toBe(true);
+    expect(enabled.json()).not.toHaveProperty('secret');
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/admin/auth/login',
+          payload: {
+            email: 'security@example.com',
+            password: 'changed-password',
+          },
+        })
+      ).json().code,
+    ).toBe('TOTP_REQUIRED');
+    const totpLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      payload: {
+        email: 'security@example.com',
+        password: 'changed-password',
+        totp: generateTotpCode(secret),
+      },
+    });
+    expect(totpLogin.statusCode).toBe(200);
+    const totpCookie = (
+      Array.isArray(totpLogin.headers['set-cookie'])
+        ? totpLogin.headers['set-cookie'][0]!
+        : totpLogin.headers['set-cookie']!
+    ).split(';')[0]!;
+    const disabled = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/totp/disable',
+      headers: { cookie: totpCookie },
+      payload: {
+        password: 'changed-password',
+        totp: generateTotpCode(secret),
+      },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json().user.totpEnabled).toBe(false);
   });
 });

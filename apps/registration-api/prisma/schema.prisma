@@ -135,6 +135,8 @@ model AdminUser {
   id               String            @id @default(uuid()) @db.Uuid
   email            String            @unique
   passwordHash     String
+  totpSecret       String?
+  totpEnabled      Boolean           @default(false)
   role             AdminRole
   status           AdminStatus       @default(ACTIVE)
   failedLoginCount Int               @default(0)

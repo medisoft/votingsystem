@@ -13,6 +13,7 @@ interface User {
   email: string;
   role: Role;
   status: string;
+  totpEnabled: boolean;
   createdAt: string;
 }
 type ScopeStatus =
@@ -185,27 +186,42 @@ function Login() {
   const { t } = useI18n();
   const client = useQueryClient();
   const [error, setError] = useState('');
+  const [totpRequired, setTotpRequired] = useState(false);
   const login = useMutation({
-    mutationFn: (credentials: { email: string; password: string }) =>
+    mutationFn: (credentials: {
+      email: string;
+      password: string;
+      totp?: string;
+    }) =>
       api('/api/v1/admin/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['me'] }),
-    onError: (value) =>
+    onError: (value) => {
+      if (value.message === 'TOTP_REQUIRED') {
+        setTotpRequired(true);
+        setError(t('totpRequired'));
+        return;
+      }
       setError(
         value.message === 'INVALID_CREDENTIALS'
           ? t('invalidCredentials')
-          : t('loginFailed'),
-      ),
+          : value.message === 'TOTP_INVALID'
+            ? t('totpInvalid')
+            : t('loginFailed'),
+      );
+    },
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     const data = new FormData(event.currentTarget);
+    const totp = String(data.get('totp') ?? '').trim();
     login.mutate({
       email: String(data.get('email')),
       password: String(data.get('password')),
+      ...(totp ? { totp } : {}),
     });
   };
   return (
@@ -227,6 +243,18 @@ function Login() {
               required
             />
           </label>
+          {totpRequired && (
+            <label>
+              {t('totpCode')}
+              <input
+                name="totp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                required
+              />
+            </label>
+          )}
           {error && (
             <p role="alert" className="error">
               {error}
@@ -260,6 +288,11 @@ function Dashboard({ user }: { user: User }) {
     null,
   );
   const [importPreviewPage, setImportPreviewPage] = useState(0);
+  const [totpSetup, setTotpSetup] = useState<{
+    secret: string;
+    otpauthUrl: string;
+    qrDataUrl: string | null;
+  } | null>(null);
   const importSelection = useRef(0);
   const users = useQuery({
     queryKey: ['users'],
@@ -540,6 +573,99 @@ function Dashboard({ user }: { user: User }) {
     mutationFn: () => api('/api/v1/admin/auth/logout', { method: 'POST' }),
     onSuccess: () => client.setQueryData(['me'], null),
   });
+  const changePassword = useMutation({
+    mutationFn: (body: { currentPassword: string; newPassword: string }) =>
+      api('/api/v1/admin/auth/password', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => setMessage(t('passwordChanged')),
+    onError: (error) =>
+      setMessage(
+        error.message === 'INVALID_CREDENTIALS'
+          ? t('invalidCredentials')
+          : t('passwordChangeFailed'),
+      ),
+  });
+  const startTotp = useMutation({
+    mutationFn: () =>
+      api<{ secret: string; otpauthUrl: string }>(
+        '/api/v1/admin/auth/totp/setup',
+        { method: 'POST' },
+      ),
+    onSuccess: async (setup) => {
+      const qrDataUrl = await QRCode.toDataURL(setup.otpauthUrl, {
+        margin: 1,
+        width: 192,
+      }).catch(() => null);
+      setTotpSetup({ ...setup, qrDataUrl });
+    },
+    onError: () => setMessage(t('totpSetupFailed')),
+  });
+  const confirmTotp = useMutation({
+    mutationFn: (totp: string) =>
+      api('/api/v1/admin/auth/totp/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ totp }),
+      }),
+    onSuccess: () => {
+      setTotpSetup(null);
+      setMessage(t('totpEnabledMessage'));
+      void client.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (error) =>
+      setMessage(
+        error.message === 'TOTP_INVALID'
+          ? t('totpInvalid')
+          : t('totpEnableFailed'),
+      ),
+  });
+  const disableTotp = useMutation({
+    mutationFn: (body: { password: string; totp?: string }) =>
+      api('/api/v1/admin/auth/totp/disable', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      setTotpSetup(null);
+      setMessage(t('totpDisabledMessage'));
+      void client.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (error) =>
+      setMessage(
+        error.message === 'TOTP_INVALID'
+          ? t('totpInvalid')
+          : error.message === 'INVALID_CREDENTIALS'
+            ? t('invalidCredentials')
+            : t('totpDisableFailed'),
+      ),
+  });
+  const submitPasswordChange = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const newPassword = String(data.get('newPassword'));
+    if (newPassword !== String(data.get('confirmPassword'))) {
+      setMessage(t('passwordMismatch'));
+      return;
+    }
+    changePassword.mutate({
+      currentPassword: String(data.get('currentPassword')),
+      newPassword,
+    });
+  };
+  const submitTotpConfirm = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    confirmTotp.mutate(String(new FormData(event.currentTarget).get('totp')));
+  };
+  const submitTotpDisable = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const totp = String(data.get('totp') ?? '').trim();
+    disableTotp.mutate({
+      password: String(data.get('password')),
+      ...(totp ? { totp } : {}),
+    });
+  };
   const create = useMutation({
     mutationFn: (body: { email: string; password: string; role: Role }) =>
       api('/api/v1/admin/users', {
@@ -694,6 +820,94 @@ function Dashboard({ user }: { user: User }) {
           </button>
         </header>
         {message && <p role="status">{message}</p>}
+        <h2>{t('accountSecurity')}</h2>
+        <form onSubmit={submitPasswordChange}>
+          <label>
+            {t('currentPassword')}
+            <input
+              name="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          <label>
+            {t('newPassword')}
+            <input
+              name="newPassword"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </label>
+          <label>
+            {t('confirmPassword')}
+            <input
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </label>
+          <button disabled={changePassword.isPending}>
+            {t('changePassword')}
+          </button>
+        </form>
+        <p>
+          {user.totpEnabled ? t('totpEnabledStatus') : t('totpDisabledStatus')}
+        </p>
+        {user.totpEnabled ? (
+          <form onSubmit={submitTotpDisable}>
+            <label>
+              {t('currentPassword')}
+              <input name="password" type="password" required />
+            </label>
+            <label>
+              {t('totpCode')}
+              <input name="totp" inputMode="numeric" pattern="\d{6}" required />
+            </label>
+            <button disabled={disableTotp.isPending}>{t('disableTotp')}</button>
+          </form>
+        ) : totpSetup ? (
+          <>
+            <p>{t('totpSetupHelp')}</p>
+            {totpSetup.qrDataUrl ? (
+              <img
+                src={totpSetup.qrDataUrl}
+                alt={t('totpQrAlt')}
+                width={192}
+                height={192}
+              />
+            ) : null}
+            <p>
+              {t('totpSecret')}: <code>{totpSetup.secret}</code>
+            </p>
+            <form onSubmit={submitTotpConfirm}>
+              <label>
+                {t('totpCode')}
+                <input
+                  name="totp"
+                  inputMode="numeric"
+                  pattern="\d{6}"
+                  required
+                />
+              </label>
+              <button disabled={confirmTotp.isPending}>
+                {t('confirmTotp')}
+              </button>
+            </form>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={startTotp.isPending}
+            onClick={() => startTotp.mutate()}
+          >
+            {t('startTotp')}
+          </button>
+        )}
         <h2>{t('voterRecords')}</h2>
         {user.role === 'AUDITOR' ? (
           <p>{t('auditorNotice')}</p>

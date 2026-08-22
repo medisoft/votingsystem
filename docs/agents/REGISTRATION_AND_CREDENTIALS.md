@@ -244,12 +244,13 @@ Minimum requirements:
 
 * Email and password login.
 * Password hashing using Argon2id.
+* Authenticated password change.
+* Optional TOTP-based multi-factor authentication.
 * Role-based access control.
 * Secure session cookies or short-lived access tokens with refresh-token rotation.
 * Rate limiting.
 * Account lockout or progressive delay after repeated failures.
 * Audit login success and failure.
-* Support for optional TOTP-based multi-factor authentication in a later stage.
 
 Do not use the same authentication mechanism for anonymous voters and administrators.
 
@@ -545,6 +546,8 @@ Define a versioned credential-verification interface.
 * id
 * email
 * passwordHash
+* totpSecret
+* totpEnabled
 * role
 * status
 * failedLoginCount
@@ -910,6 +913,8 @@ Implement:
 * Logout.
 * Session or token refresh.
 * Argon2id password hashing.
+* Authenticated password change.
+* TOTP enrollment, login challenge, and disable.
 * Role middleware.
 * Protected frontend routes.
 * Login audit events.
@@ -918,9 +923,11 @@ Implement:
 Acceptance criteria:
 
 * An administrator can log in and access the dashboard.
+* An administrator can change their password by supplying the current password.
+* An administrator can enroll, confirm, and disable TOTP. When TOTP is enabled, login requires a valid TOTP code.
 * Invalid credentials are rejected.
 * Protected endpoints cannot be accessed anonymously.
-* Password hashes are never exposed.
+* Password hashes and TOTP secrets are never exposed.
 * Authentication tests pass.
 
 ---

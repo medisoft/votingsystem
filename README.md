@@ -24,13 +24,15 @@ After selecting the version in .nvmrc, install dependencies and generate the Pri
     npm run db:generate
     docker compose up
 
-That single Compose command starts PostgreSQL, the API, and the admin frontend. Open http://localhost:5173. The API runs on http://localhost:3000.
+That single Compose command starts PostgreSQL, the API, and the admin frontend, and seeds a development system administrator. Open http://localhost:5173 and sign in as `admin@example.com` with password `local-dev-password`. The API runs on http://localhost:3001.
+
+These Compose credentials are development-only. Restarting the API container resets that administrator to the same password.
 
 The admin frontend uses same-origin API paths. When it is opened remotely (for example, http://ispy.local:5173), Vite proxies /api requests to the API container, so the remote browser never tries to contact its own localhost.
 
 PostgreSQL is exposed to the host on port `15432`; containers continue to connect to it internally on port `5432`.
 
-Create or reset the initial system administrator after the stack is running:
+For host-based development, or to reset the password after changing it, run:
 
     ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='choose-at-least-12-characters' npm run db:seed
 
@@ -42,18 +44,22 @@ For host-based development, copy each app's .env.example to .env, run npm run de
 
 ## Verification
 
-Check /health/live, /health/ready, and /api/v1 on port 3000. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
+Check /health/live, /health/ready, and /api/v1 on port 3001. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
 
 ## Stage 2 authentication
 
-Administrative authentication uses an opaque, hashed, eight-hour server-side session in an HTTP-only, SameSite=Strict cookie. Five failed logins lock an account for 15 minutes. Login attempts, logout, and administrator creation are audited.
+Administrative authentication uses an opaque, hashed, eight-hour server-side session in an HTTP-only, SameSite=Strict cookie. Five failed logins lock an account for 15 minutes. Login attempts, logout, password changes, TOTP enrollment, and administrator creation are audited.
+
+An administrator can change their password by supplying the current password. Other sessions are revoked. They can enroll optional TOTP; when it is enabled, login requires a valid six-digit code. TOTP secrets are returned only during setup and are excluded from later responses, logs, and audit metadata.
 
 Roles are SYSTEM_ADMIN, REGISTRATION_OPERATOR, and AUDITOR. Only a system administrator can list and create administrator accounts in this stage.
+
+The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation. It was selected for its maintained Node and TypeScript support, MIT license, and standard otpauth URL output. Version 9.5.1 is compatible with this project’s Node 24 and Fastify 5 setup. At selection time, npm reported no known production dependency vulnerabilities. Maintenance and license evidence: https://www.npmjs.com/package/otpauth and https://github.com/hectorm/otpauth.
 
 ## Known limitations
 
 - Voting scopes, voter records, CSV imports, and activation-token delivery are implemented. Activation-token redemption, credential issuance, and voting remain for later stages.
-- Account editing, password reset, TOTP, and the complete audit viewer are deferred.
+- Account editing and the complete audit viewer are deferred.
 - Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
 
 ## Stage 3 voting scopes

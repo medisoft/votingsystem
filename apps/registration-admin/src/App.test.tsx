@@ -728,3 +728,89 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     expect.objectContaining({ method: 'DELETE' }),
   );
 });
+
+it('asks for an authenticator code when login requires TOTP', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ code: 'TOTP_REQUIRED' }),
+    }),
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Sign in' }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Email'), {
+    target: { value: 'admin@example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'correct-password' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+  expect(
+    await screen.findByText(
+      'Enter the authenticator code to finish signing in.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText('Authenticator code')).toBeInTheDocument();
+});
+
+it('lets a signed-in administrator change their password', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      if (path.endsWith('/api/v1/admin/users'))
+        return { ok: true, status: 200, json: async () => ({ users: [] }) };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Account security' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Change password' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Set up authenticator' }),
+  ).toBeInTheDocument();
+});

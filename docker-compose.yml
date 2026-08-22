@@ -33,11 +33,13 @@ services:
       [
         'sh',
         '-c',
-        'npm run db:migrate -w @voting/registration-api && npm run dev -w @voting/registration-api',
+        'npm run db:migrate -w @voting/registration-api && npm run db:seed -w @voting/registration-api && npm run dev -w @voting/registration-api',
       ]
     environment:
       DATABASE_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
       ADMIN_ORIGIN: http://localhost:5173
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: local-dev-password
       PORT: '3001'
     ports: ['3001:3001']
     volumes: ['.:/workspace']

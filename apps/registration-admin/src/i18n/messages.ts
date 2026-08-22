@@ -61,6 +61,129 @@ export const messages = {
     en: 'Sign out',
     es: 'Cerrar sesión',
   },
+  totpCode: {
+    description: 'Label for a six-digit authenticator code.',
+    en: 'Authenticator code',
+    es: 'Código del autenticador',
+  },
+  totpRequired: {
+    description:
+      'Login prompt when a TOTP code is required after a valid password.',
+    en: 'Enter the authenticator code to finish signing in.',
+    es: 'Introduce el código del autenticador para terminar de iniciar sesión.',
+  },
+  totpInvalid: {
+    description: 'Login error when the submitted TOTP code is wrong.',
+    en: 'The authenticator code is incorrect.',
+    es: 'El código del autenticador es incorrecto.',
+  },
+  accountSecurity: {
+    description: 'Heading for password change and TOTP settings.',
+    en: 'Account security',
+    es: 'Seguridad de la cuenta',
+  },
+  currentPassword: {
+    description: 'Label for the current password when changing it.',
+    en: 'Current password',
+    es: 'Contraseña actual',
+  },
+  newPassword: {
+    description: 'Label for the new password field.',
+    en: 'New password',
+    es: 'Nueva contraseña',
+  },
+  confirmPassword: {
+    description: 'Label for confirming the new password.',
+    en: 'Confirm new password',
+    es: 'Confirmar nueva contraseña',
+  },
+  changePassword: {
+    description: 'Button that submits a password change.',
+    en: 'Change password',
+    es: 'Cambiar contraseña',
+  },
+  passwordChanged: {
+    description: 'Success status after the password is changed.',
+    en: 'Password updated.',
+    es: 'Contraseña actualizada.',
+  },
+  passwordChangeFailed: {
+    description: 'Error shown when a password change is rejected.',
+    en: 'Unable to change the password.',
+    es: 'No fue posible cambiar la contraseña.',
+  },
+  passwordMismatch: {
+    description: 'Error when the new password and confirmation do not match.',
+    en: 'The new password and confirmation do not match.',
+    es: 'La nueva contraseña y la confirmación no coinciden.',
+  },
+  totpEnabledStatus: {
+    description:
+      'Notice that TOTP is currently enabled for the signed-in administrator.',
+    en: 'Authenticator app sign-in is enabled.',
+    es: 'El inicio de sesión con autenticador está activado.',
+  },
+  totpDisabledStatus: {
+    description:
+      'Notice that TOTP is not enabled for the signed-in administrator.',
+    en: 'Authenticator app sign-in is optional and currently off.',
+    es: 'El inicio de sesión con autenticador es opcional y está desactivado.',
+  },
+  startTotp: {
+    description: 'Button that begins TOTP enrollment.',
+    en: 'Set up authenticator',
+    es: 'Configurar autenticador',
+  },
+  totpSetupHelp: {
+    description: 'Instructions for scanning the TOTP enrollment QR code.',
+    en: 'Scan this QR code or enter the secret in your authenticator app, then confirm with a code.',
+    es: 'Escanea este código QR o introduce el secreto en tu autenticador y confirma con un código.',
+  },
+  totpSecret: {
+    description: 'Label for the one-time TOTP secret shown during enrollment.',
+    en: 'Secret',
+    es: 'Secreto',
+  },
+  totpQrAlt: {
+    description: 'Alternative text for the TOTP enrollment QR image.',
+    en: 'Authenticator enrollment QR code',
+    es: 'Código QR de alta del autenticador',
+  },
+  confirmTotp: {
+    description: 'Button that confirms TOTP enrollment with a code.',
+    en: 'Enable authenticator',
+    es: 'Activar autenticador',
+  },
+  totpEnabledMessage: {
+    description: 'Success status after TOTP is enabled.',
+    en: 'Authenticator sign-in is enabled.',
+    es: 'El inicio de sesión con autenticador está activado.',
+  },
+  totpEnableFailed: {
+    description: 'Error when TOTP enrollment cannot be completed.',
+    en: 'Unable to enable the authenticator.',
+    es: 'No fue posible activar el autenticador.',
+  },
+  disableTotp: {
+    description: 'Button that turns off TOTP.',
+    en: 'Disable authenticator',
+    es: 'Desactivar autenticador',
+  },
+  totpDisabledMessage: {
+    description: 'Success status after TOTP is disabled.',
+    en: 'Authenticator sign-in is disabled.',
+    es: 'El inicio de sesión con autenticador está desactivado.',
+  },
+  totpDisableFailed: {
+    description: 'Error when TOTP cannot be disabled.',
+    en: 'Unable to disable the authenticator.',
+    es: 'No fue posible desactivar el autenticador.',
+  },
+  totpSetupFailed: {
+    description: 'Error when TOTP setup cannot start.',
+    en: 'Unable to start authenticator setup.',
+    es: 'No fue posible iniciar la configuración del autenticador.',
+  },
   voterRecords: {
     description: 'Heading for the voter registration record list.',
     en: 'Voter records',
