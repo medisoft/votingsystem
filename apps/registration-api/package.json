@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "test:integration": "vitest run test/auth.integration.test.ts"
+    "test:integration": "vitest run --fileParallelism false test/auth.integration.test.ts test/audit.integration.test.ts",
+    "audit:verify": "tsx src/audit-verify.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

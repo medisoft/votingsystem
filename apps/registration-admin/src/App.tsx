@@ -142,6 +142,38 @@ interface CsvImportPreview {
     }>;
   }>;
 }
+interface RegistrationSummaryReport {
+  generatedAt: string;
+  totalRecords: number;
+  eligibleRecords: number;
+  ineligibleRecords: number;
+  activeRecords: number;
+  inactiveRecords: number;
+  notYetActivated: number;
+  byScope: Array<{
+    scopeId: string;
+    scopeName: string;
+    eligible: number;
+    ineligible: number;
+    notYetActivated: number;
+  }>;
+}
+interface ActivationSummaryReport {
+  generatedAt: string;
+  generated: number;
+  active: number;
+  redeemed: number;
+  expired: number;
+  revoked: number;
+}
+interface CredentialStatusReport {
+  generatedAt: string;
+  issued: number;
+  active: number;
+  revoked: number;
+  expired: number;
+  replaced: number;
+}
 interface CsvImportResult {
   import: {
     id: string;
@@ -362,6 +394,9 @@ function Dashboard({ user }: { user: User }) {
   const [registrationActivation, setRegistrationActivation] = useState('');
   const [editingRecord, setEditingRecord] = useState<Registration | null>(null);
   const [editingScope, setEditingScope] = useState<Scope | null>(null);
+  const [auditEventType, setAuditEventType] = useState('');
+  const [auditFrom, setAuditFrom] = useState('');
+  const [auditTo, setAuditTo] = useState('');
   const registrations = useQuery({
     queryKey: [
       'registrations',
@@ -384,8 +419,38 @@ function Dashboard({ user }: { user: User }) {
     },
   });
   const recentAuditEvents = useQuery({
-    queryKey: ['audit-events'],
-    queryFn: () => api<{ events: AuditEvent[] }>('/api/v1/admin/audit-events'),
+    queryKey: ['audit-events', auditEventType, auditFrom, auditTo],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (auditEventType.trim()) params.set('eventType', auditEventType.trim());
+      if (auditFrom) params.set('from', new Date(auditFrom).toISOString());
+      if (auditTo) params.set('to', new Date(auditTo).toISOString());
+      const query = params.toString();
+      return api<{ events: AuditEvent[] }>(
+        `/api/v1/admin/audit-events${query ? `?${query}` : ''}`,
+      );
+    },
+  });
+  const registrationReport = useQuery({
+    queryKey: ['report', 'registration-summary'],
+    queryFn: () =>
+      api<{ report: RegistrationSummaryReport }>(
+        '/api/v1/admin/reports/registration-summary',
+      ),
+  });
+  const activationReport = useQuery({
+    queryKey: ['report', 'activation-summary'],
+    queryFn: () =>
+      api<{ report: ActivationSummaryReport }>(
+        '/api/v1/admin/reports/activation-summary',
+      ),
+  });
+  const credentialReport = useQuery({
+    queryKey: ['report', 'credential-status'],
+    queryFn: () =>
+      api<{ report: CredentialStatusReport }>(
+        '/api/v1/admin/reports/credential-status',
+      ),
   });
   const recordHistory = useQuery({
     queryKey: ['audit-events', editingRecord?.id],
@@ -430,6 +495,7 @@ function Dashboard({ user }: { user: User }) {
       setMessage(t('recordUpdated'));
       void client.invalidateQueries({ queryKey: ['registrations'] });
       void client.invalidateQueries({ queryKey: ['audit-events'] });
+      void client.invalidateQueries({ queryKey: ['report'] });
     },
     onError: (error) =>
       setMessage(t('recordSaveFailed', { error: error.message })),
@@ -704,6 +770,7 @@ function Dashboard({ user }: { user: User }) {
       setMessage(t('scopeUpdated'));
       void client.invalidateQueries({ queryKey: ['scopes'] });
       void client.invalidateQueries({ queryKey: ['audit-events'] });
+      void client.invalidateQueries({ queryKey: ['report'] });
     },
     onError: (error) =>
       setMessage(t('scopeSaveFailed', { error: error.message })),
@@ -1005,6 +1072,55 @@ function Dashboard({ user }: { user: User }) {
           </button>
         </header>
         {message && <p role="status">{message}</p>}
+        <h2>{t('operationalReports')}</h2>
+        <ul>
+          <li>
+            {t('eligibleRecords')}:{' '}
+            {registrationReport.data?.report.eligibleRecords ?? '—'}
+          </li>
+          <li>
+            {t('notYetActivated')}:{' '}
+            {registrationReport.data?.report.notYetActivated ?? '—'}
+          </li>
+          <li>
+            {t('tokensGenerated')}:{' '}
+            {activationReport.data?.report.generated ?? '—'}
+          </li>
+          <li>
+            {t('tokensRedeemed')}:{' '}
+            {activationReport.data?.report.redeemed ?? '—'}
+          </li>
+          <li>
+            {t('credentialsIssued')}:{' '}
+            {credentialReport.data?.report.issued ?? '—'}
+          </li>
+          <li>
+            {t('credentialsRevoked')}:{' '}
+            {credentialReport.data?.report.revoked ?? '—'}
+          </li>
+        </ul>
+        {registrationReport.data?.report.byScope?.length ? (
+          <ul>
+            {registrationReport.data.report.byScope.map((row) => (
+              <li key={row.scopeId}>
+                {row.scopeName}: {row.eligible} / {row.notYetActivated}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p>
+          <a href={`${apiUrl}/api/v1/admin/reports/registration-summary.csv`}>
+            {t('downloadRegistrationSummary')}
+          </a>
+          {' · '}
+          <a href={`${apiUrl}/api/v1/admin/reports/activation-summary.csv`}>
+            {t('downloadActivationSummary')}
+          </a>
+          {' · '}
+          <a href={`${apiUrl}/api/v1/admin/reports/credential-status.csv`}>
+            {t('downloadCredentialStatus')}
+          </a>
+        </p>
         <h2>{t('accountSecurity')}</h2>
         <form onSubmit={submitPasswordChange}>
           <label>
@@ -2016,6 +2132,29 @@ function Dashboard({ user }: { user: User }) {
           <p>{t('restrictedRoleNotice')}</p>
         )}
         <h2>{t('auditEvents')}</h2>
+        <label>
+          {t('auditEventType')}
+          <input
+            value={auditEventType}
+            onChange={(event) => setAuditEventType(event.target.value)}
+          />
+        </label>
+        <label>
+          {t('auditFrom')}
+          <input
+            type="datetime-local"
+            value={auditFrom}
+            onChange={(event) => setAuditFrom(event.target.value)}
+          />
+        </label>
+        <label>
+          {t('auditTo')}
+          <input
+            type="datetime-local"
+            value={auditTo}
+            onChange={(event) => setAuditTo(event.target.value)}
+          />
+        </label>
         <ul>
           {recentAuditEvents.data?.events?.length
             ? recentAuditEvents.data.events.map((event) => (

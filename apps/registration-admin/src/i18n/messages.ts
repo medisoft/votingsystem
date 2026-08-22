@@ -423,6 +423,74 @@ export const messages = {
     en: 'Recent audit events',
     es: 'Eventos de auditoría recientes',
   },
+  operationalReports: {
+    description:
+      'Heading for aggregate registration, activation, and credential reports.',
+    en: 'Operational reports',
+    es: 'Informes operativos',
+  },
+  eligibleRecords: {
+    description: 'Dashboard label for globally eligible registration records.',
+    en: 'Eligible records',
+    es: 'Registros elegibles',
+  },
+  tokensGenerated: {
+    description:
+      'Dashboard label for the number of activation tokens generated.',
+    en: 'Tokens generated',
+    es: 'Tokens generados',
+  },
+  tokensRedeemed: {
+    description: 'Dashboard label for redeemed activation tokens.',
+    en: 'Tokens redeemed',
+    es: 'Tokens canjeados',
+  },
+  credentialsIssued: {
+    description: 'Dashboard label for issued voting credentials.',
+    en: 'Credentials issued',
+    es: 'Credenciales emitidas',
+  },
+  credentialsRevoked: {
+    description: 'Dashboard label for revoked voting credentials.',
+    en: 'Credentials revoked',
+    es: 'Credenciales revocadas',
+  },
+  notYetActivated: {
+    description:
+      'Dashboard label for eligible records that have never activated.',
+    en: 'Not yet activated',
+    es: 'Aún no activados',
+  },
+  downloadRegistrationSummary: {
+    description: 'Link that downloads the registration summary as CSV.',
+    en: 'Download registration summary',
+    es: 'Descargar resumen de registros',
+  },
+  downloadActivationSummary: {
+    description: 'Link that downloads the activation summary as CSV.',
+    en: 'Download activation summary',
+    es: 'Descargar resumen de activación',
+  },
+  downloadCredentialStatus: {
+    description: 'Link that downloads the credential status report as CSV.',
+    en: 'Download credential status',
+    es: 'Descargar estado de credenciales',
+  },
+  auditEventType: {
+    description: 'Filter label for audit event type.',
+    en: 'Event type',
+    es: 'Tipo de evento',
+  },
+  auditFrom: {
+    description: 'Filter label for the start of the audit event date range.',
+    en: 'From',
+    es: 'Desde',
+  },
+  auditTo: {
+    description: 'Filter label for the end of the audit event date range.',
+    en: 'To',
+    es: 'Hasta',
+  },
   noAuditEvents: {
     description: 'Empty state when no audit events match the current view.',
     en: 'No audit events.',

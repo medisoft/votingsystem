@@ -167,6 +167,7 @@ model AdminSession {
 
 model AuditEvent {
   id           String    @id @default(uuid()) @db.Uuid
+  chainIndex   Int       @unique @default(autoincrement())
   occurredAt   DateTime  @default(now())
   actorType    ActorType
   actorId      String?   @db.Uuid
@@ -180,6 +181,7 @@ model AuditEvent {
 
   @@index([occurredAt])
   @@index([eventType])
+  @@index([actorId])
 }
 
 enum IssuedCredentialStatus {

@@ -459,11 +459,19 @@ export function registerAuthRoutes(
     async (request, reply) => {
       const parsed = z
         .object({
-          targetId: z.string().uuid().optional(),
+          targetId: z.string().min(1).max(100).optional(),
           targetType: z.string().trim().min(1).max(100).optional(),
+          eventType: z.string().trim().min(1).max(100).optional(),
+          actorId: z.string().uuid().optional(),
+          from: z.string().datetime({ offset: true }).optional(),
+          to: z.string().datetime({ offset: true }).optional(),
         })
         .safeParse(request.query);
       if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_QUERY' });
+      const from = parsed.data.from ? new Date(parsed.data.from) : undefined;
+      const to = parsed.data.to ? new Date(parsed.data.to) : undefined;
+      if (from && to && from > to)
         return reply.code(400).send({ code: 'INVALID_QUERY' });
       return {
         events: await app.prisma.auditEvent.findMany({
@@ -471,6 +479,18 @@ export function registerAuthRoutes(
             ...(parsed.data.targetId ? { targetId: parsed.data.targetId } : {}),
             ...(parsed.data.targetType
               ? { targetType: parsed.data.targetType }
+              : {}),
+            ...(parsed.data.eventType
+              ? { eventType: parsed.data.eventType }
+              : {}),
+            ...(parsed.data.actorId ? { actorId: parsed.data.actorId } : {}),
+            ...(from || to
+              ? {
+                  occurredAt: {
+                    ...(from ? { gte: from } : {}),
+                    ...(to ? { lte: to } : {}),
+                  },
+                }
               : {}),
           },
           orderBy: { occurredAt: 'desc' },

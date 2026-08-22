@@ -11,6 +11,7 @@ import databasePlugin from './plugins/database.js';
 import { registerImportRoutes } from './imports.js';
 import { registerScopeRoutes } from './scopes.js';
 import { registerRegistrationRoutes } from './registrations.js';
+import { registerReportRoutes } from './report-routes.js';
 export async function buildApp(
   config: AppConfig,
   checkDb?: () => Promise<void>,
@@ -52,5 +53,6 @@ export async function buildApp(
   registerScopeRoutes(app);
   registerImportRoutes(app);
   registerRegistrationRoutes(app);
+  registerReportRoutes(app);
   return app;
 }

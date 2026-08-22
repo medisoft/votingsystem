@@ -980,3 +980,110 @@ it('lets a signed-in administrator change their password', async () => {
     screen.getByRole('button', { name: 'Set up authenticator' }),
   ).toBeInTheDocument();
 });
+
+it('shows operational reports and CSV downloads for auditors', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: 'auditor-1',
+              email: 'auditor@example.com',
+              role: 'AUDITOR',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/registration-summary'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              totalRecords: 4,
+              eligibleRecords: 3,
+              ineligibleRecords: 1,
+              activeRecords: 4,
+              inactiveRecords: 0,
+              notYetActivated: 2,
+              byScope: [
+                {
+                  scopeId: 'scope-1',
+                  scopeName: 'Assembly',
+                  eligible: 3,
+                  ineligible: 1,
+                  notYetActivated: 2,
+                },
+              ],
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/activation-summary'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              generated: 5,
+              active: 1,
+              redeemed: 2,
+              expired: 1,
+              revoked: 1,
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/credential-status'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              issued: 2,
+              active: 1,
+              revoked: 1,
+              expired: 0,
+              replaced: 1,
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Operational reports' }),
+  ).toBeInTheDocument();
+  expect(await screen.findByText(/Eligible records: 3/)).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download registration summary' }),
+  ).toHaveAttribute('href', '/api/v1/admin/reports/registration-summary.csv');
+  expect(
+    screen.getByRole('link', { name: 'Download activation summary' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download credential status' }),
+  ).toBeInTheDocument();
+});

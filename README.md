@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 7: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, and prototype Ed25519 credential issuance.
+Registration and Credential Issuance Service through Stage 9: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, prototype Ed25519 credential issuance, revocation, hash-chained audit verification, and operational reports.
 
 ## Requirements
 
@@ -60,8 +60,7 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 ## Known limitations
 
 - Voting scopes, voter records, CSV imports, activation tokens, prototype credential issuance, revocation, and reissuance are implemented. Anonymous voting remains for later stages.
-- Account editing and the complete audit viewer are deferred.
-- Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
+- Account editing is deferred. The dashboard lists recent audit events with type and date filters; it is not a full forensic viewer.
 
 ## Stage 3 voting scopes
 
@@ -141,6 +140,31 @@ Pending manual tests:
 - Reissuing the original credential again returns `CREDENTIAL_ALREADY_REPLACED`.
 
 When creating a local voting scope, set issuer key version to `dev-2026-01` so it matches the Compose issuer.
+
+## Stage 9 audit integrity and operational reports
+
+Audit events are hash-chained. Each row stores a monotonic `chainIndex`, the previous event hash, and `eventHash` = SHA-256 of canonical JSON with a fixed field order (`id`, `occurredAt`, `actorType`, `actorId`, `eventType`, `targetType`, `targetId`, `sourceIp`, sorted `metadata`, `previousHash`). Append uses `pg_advisory_xact_lock` so concurrent writers cannot fork the chain.
+
+Verify the stored chain against the current `DATABASE_URL`:
+
+    npm run audit:verify
+
+The command exits 0 when the chain is intact and 1 when an older row was modified, a hash link is broken, or `chainIndex` has a gap. It prints the first failing event id.
+
+GET `/api/v1/admin/reports/registration-summary`, `/activation-summary`, and `/credential-status` return count snapshots. Append `.csv` for a downloadable export. Optional `asOf` (RFC 3339) freezes token and credential expiration classification and is copied into every CSV row so the same instant yields the same file. CSV column order is documented in `apps/registration-api/src/reports.ts`. Reports contain totals and scope names only: no owner, unit, email, raw activation token, public key, or token hash.
+
+Any authenticated administrator, including AUDITOR, can read reports. Auditors still cannot create or modify records. CSV downloads write `REPORT_EXPORTED` audit events with `{ report, format: "csv", asOf }` and never include snapshot contents or secrets.
+
+GET `/api/v1/admin/audit-events` accepts `eventType`, `actorId`, `targetType`, `targetId`, `from`, and `to`.
+
+Pending manual tests:
+
+- Sign in as the development administrator, open the dashboard, and confirm eligible-record, token, and credential totals.
+- Download each CSV. Re-download with the same `asOf` and confirm the files match. Confirm the files contain no owner names or activation tokens.
+- Sign in as an auditor (create one from the administrator list). Confirm reports and CSV links work, and that creating a registration is forbidden.
+- Run `npm run audit:verify` against the development database; it should report a valid chain. Using `psql`, change `metadata` on an older `AuditEvent` row and run the command again; it must fail. Restore the row or re-seed afterward.
+
+Events written before this stage used a non-canonical hash payload. After migrating, run `npm run audit:verify`; if historical rows fail, reset or re-seed the development database. Do not rewrite hashes to hide tampering.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
