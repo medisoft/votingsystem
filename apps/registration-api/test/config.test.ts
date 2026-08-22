@@ -5,6 +5,11 @@ it('validates environment', () => {
   expect(
     loadConfig({
       DATABASE_URL: 'postgresql://x:x@localhost:5432/x',
+    }).PORT,
+  ).toBe(3001);
+  expect(
+    loadConfig({
+      DATABASE_URL: 'postgresql://x:x@localhost:5432/x',
       PORT: '4000',
     }).PORT,
   ).toBe(4000);

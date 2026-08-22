@@ -4,7 +4,7 @@ const schema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   HOST: z.string().default('0.0.0.0'),
-  PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  PORT: z.coerce.number().int().positive().max(65535).default(3001),
   DATABASE_URL: z.string().url(),
   ADMIN_ORIGIN: z.string().url().default('http://localhost:5173'),
   LOG_LEVEL: z

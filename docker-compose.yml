@@ -38,7 +38,8 @@ services:
     environment:
       DATABASE_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
       ADMIN_ORIGIN: http://localhost:5173
-    ports: ['3000:3000']
+      PORT: '3001'
+    ports: ['3001:3001']
     volumes: ['.:/workspace']
     depends_on:
       postgres:
@@ -49,7 +50,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          "fetch('http://localhost:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
         ]
       interval: 5s
       timeout: 5s
@@ -59,7 +60,7 @@ services:
     working_dir: /workspace
     command: npm run dev -w @voting/registration-admin
     environment:
-      API_PROXY_TARGET: http://api:3000
+      API_PROXY_TARGET: http://api:3001
     ports: ['5173:5173']
     volumes: ['.:/workspace']
     depends_on:

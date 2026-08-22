@@ -4,7 +4,7 @@ import type { AppConfig } from '../src/config.js';
 const config: AppConfig = {
   NODE_ENV: 'test',
   HOST: '127.0.0.1',
-  PORT: 3000,
+  PORT: 3001,
   DATABASE_URL: 'postgresql://x:x@localhost:5432/x',
   ADMIN_ORIGIN: 'http://localhost:5173',
   LOG_LEVEL: 'silent',

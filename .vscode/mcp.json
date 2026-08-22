@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "vexp": {
+      "type": "stdio",
+      "command": "/home/mario/.nvm/versions/node/v24.19.0/bin/node",
+      "args": [
+        "/home/mario/.vscode/extensions/vexp.vexp-vscode-2.7.0-linux-x64/dist/mcp-server.cjs"
+      ],
+      "env": {
+        "VEXP_WORKSPACE": "/home/mario/IdeaProjects/votingsystem"
+      }
+    }
+  }
+}

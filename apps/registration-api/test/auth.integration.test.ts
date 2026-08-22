@@ -19,7 +19,7 @@ if (enabled) assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
 const config: AppConfig = {
   NODE_ENV: 'test',
   HOST: '127.0.0.1',
-  PORT: 3000,
+  PORT: 3001,
   DATABASE_URL:
     process.env.DATABASE_URL ??
     'postgresql://unused:unused@localhost:5432/unused',

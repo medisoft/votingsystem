@@ -7,7 +7,7 @@ export default defineConfig({
     allowedHosts: ['.local'],
     proxy: {
       '/api': {
-        target: process.env.API_PROXY_TARGET ?? 'http://localhost:3000',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },
