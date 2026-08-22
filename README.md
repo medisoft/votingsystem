@@ -24,7 +24,7 @@ After selecting the version in .nvmrc, install dependencies and generate the Pri
     npm run db:generate
     docker compose up
 
-That single Compose command starts PostgreSQL, the API, and the admin frontend. Open http://localhost:5173. The API runs on http://localhost:3000.
+That single Compose command starts PostgreSQL, the API, and the admin frontend. Open http://localhost:5173. The API runs on http://localhost:3001.
 
 The admin frontend uses same-origin API paths. When it is opened remotely (for example, http://ispy.local:5173), Vite proxies /api requests to the API container, so the remote browser never tries to contact its own localhost.
 
@@ -42,7 +42,7 @@ For host-based development, copy each app's .env.example to .env, run npm run de
 
 ## Verification
 
-Check /health/live, /health/ready, and /api/v1 on port 3000. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
+Check /health/live, /health/ready, and /api/v1 on port 3001. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
 
 ## Stage 2 authentication
 
