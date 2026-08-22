@@ -251,3 +251,5 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 ### Multi-Repo
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->
+
+@/home/mario/.codex/RTK.md
