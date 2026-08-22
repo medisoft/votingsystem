@@ -41,6 +41,8 @@ services:
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: local-dev-password
       PORT: '3001'
+      ISSUER_PRIVATE_KEY: MC4CAQAwBQYDK2VwBCIEIDCy4kdw2B5wJxNs_n1-IOsJfn7KkG0u9UUM4Y_XFM31
+      ISSUER_KEY_VERSION: dev-2026-01
     ports: ['3001:3001']
     volumes: ['.:/workspace']
     depends_on:

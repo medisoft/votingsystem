@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { ActivationTokenStatus, AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -6,32 +7,90 @@ import {
   generateActivationToken,
   hashActivationToken,
 } from '../src/activation-tokens.js';
+import {
+  canonicalizeCredentialPayload,
+  generateClientNonce,
+  type CredentialPayload,
+} from '../src/credentials.js';
+import { verifyCanonical } from '../src/issuer-keys.js';
 import { generateTotpCode } from '../src/totp.js';
 import {
   IMPORT_TRANSACTION_TIMEOUT_MS,
   REGISTRATION_WRITE_LOCK,
 } from '../src/imports.js';
-import type { AppConfig } from '../src/config.js';
 import { prisma } from '../src/plugins/database.js';
 import { assertSafeTestDatabase } from './database-safety.js';
+import { testConfig, testIssuer } from './test-config.js';
 
 const enabled = process.env.ALLOW_DATABASE_RESET === 'true';
 if (enabled) assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
-const config: AppConfig = {
-  NODE_ENV: 'test',
-  HOST: '127.0.0.1',
-  PORT: 3001,
-  DATABASE_URL:
-    process.env.DATABASE_URL ??
-    'postgresql://unused:unused@localhost:5432/unused',
-  ADMIN_ORIGIN: 'http://localhost:5173',
-  LOG_LEVEL: 'silent',
-};
+const config = testConfig();
 const suite = enabled ? describe : describe.skip;
+
+/**
+ * Builds a 32-byte Ed25519 public key encoded as canonical base64url.
+ *
+ * @returns Voter public key accepted by the activation endpoint.
+ */
+function voterPublicKey() {
+  return Buffer.from(
+    generateKeyPairSync('ed25519').publicKey.export({
+      type: 'spki',
+      format: 'der',
+    }),
+  )
+    .subarray(-32)
+    .toString('base64url');
+}
+
+/**
+ * Creates an eligible registration, open activation scope, and unused token.
+ *
+ * @param unitNumber - Unique unit identifier for the registration record.
+ * @returns Persisted rows plus the one-time raw activation token.
+ */
+async function openActivation(unitNumber: string) {
+  const administrator = await prisma.adminUser.findUniqueOrThrow({
+    where: { email: 'admin@example.com' },
+  });
+  const now = Date.now();
+  const registration = await prisma.registrationRecord.create({
+    data: {
+      unitNumber,
+      ownerName: 'Credential owner',
+      votingWeight: new Prisma.Decimal('2.5000'),
+    },
+  });
+  const scope = await prisma.votingScope.create({
+    data: {
+      name: `Credential scope ${unitNumber}`,
+      status: 'ACTIVATION_OPEN',
+      startsAt: new Date(now + 3_600_000),
+      endsAt: new Date(now + 7_200_000),
+      activationStartsAt: new Date(now - 3_600_000),
+      activationEndsAt: new Date(now + 5_400_000),
+      credentialExpiresAt: new Date(now + 86_400_000),
+      issuerKeyVersion: config.ISSUER_KEY_VERSION,
+    },
+  });
+  const generated = generateActivationToken();
+  const token = await prisma.activationToken.create({
+    data: {
+      registrationRecordId: registration.id,
+      votingScopeId: scope.id,
+      tokenHash: generated.tokenHash,
+      tokenPrefixForSupport: generated.tokenPrefixForSupport,
+      generatedBy: administrator.id,
+      expiresAt: new Date(now + 5_400_000),
+    },
+  });
+  return { registration, scope, token, rawToken: generated.rawToken };
+}
 
 suite('administrative authentication', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   beforeAll(async () => {
+    await prisma.issuedCredential.deleteMany();
     await prisma.activationToken.deleteMany();
     await prisma.registrationImport.deleteMany();
     await prisma.auditEvent.deleteMany();
@@ -1416,6 +1475,408 @@ INVALID-ONLY,
         })
       ).statusCode,
     ).toBe(429);
+  });
+
+  it('issues one independently verifiable credential per activation token', async () => {
+    const keys = await app.inject({ url: '/api/v1/public/issuer-keys' });
+    expect(keys.statusCode).toBe(200);
+    expect(keys.json().keys).toEqual([
+      {
+        keyVersion: config.ISSUER_KEY_VERSION,
+        algorithm: 'Ed25519',
+        publicKey: testIssuer.publicKeyRawBase64url,
+        issuer: config.ISSUER_ID,
+      },
+    ]);
+
+    const fixture = await openActivation('CRED-API-1');
+    const publicKey = voterPublicKey();
+    const nonce = generateClientNonce();
+    const issued = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.30',
+      payload: {
+        activationToken: fixture.rawToken,
+        publicKey,
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: nonce,
+      },
+    });
+    expect(issued.statusCode).toBe(201);
+    const credential = issued.json().credential;
+    expect(credential.payload).toMatchObject({
+      schemaVersion: 1,
+      scopeId: fixture.scope.id,
+      publicKey,
+      publicKeyAlgorithm: 'Ed25519',
+      weight: '2.5000',
+      credentialVersion: 1,
+      issuer: config.ISSUER_ID,
+    });
+    expect(credential.keyVersion).toBe(config.ISSUER_KEY_VERSION);
+    const canonical = canonicalizeCredentialPayload(
+      credential.payload as CredentialPayload,
+    );
+    expect(
+      verifyCanonical(
+        canonical,
+        credential.signature,
+        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(issued.json())).not.toContain(
+      testIssuer.privateKeyPkcs8DerBase64url,
+    );
+    expect(JSON.stringify(issued.json())).not.toContain(fixture.rawToken);
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { id: fixture.token.id },
+      }),
+    ).toMatchObject({ status: ActivationTokenStatus.REDEEMED });
+    expect(await prisma.issuedCredential.count()).toBeGreaterThanOrEqual(1);
+
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.30',
+      payload: {
+        activationToken: fixture.rawToken,
+        publicKey,
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: nonce,
+      },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().credential.payload.credentialId).toBe(
+      credential.payload.credentialId,
+    );
+    expect(replay.json().credential.signature).toBe(credential.signature);
+    expect(
+      await prisma.issuedCredential.count({
+        where: { activationTokenId: fixture.token.id },
+      }),
+    ).toBe(1);
+
+    const otherKey = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.31',
+      payload: {
+        activationToken: fixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(otherKey.statusCode).toBe(409);
+    expect(otherKey.json().code).toBe('ACTIVATION_TOKEN_ALREADY_REDEEMED');
+
+    const secondSecret = generateActivationToken();
+    await prisma.activationToken.create({
+      data: {
+        registrationRecordId: fixture.registration.id,
+        votingScopeId: fixture.scope.id,
+        tokenHash: secondSecret.tokenHash,
+        tokenPrefixForSupport: secondSecret.tokenPrefixForSupport,
+        generatedBy: (
+          await prisma.adminUser.findUniqueOrThrow({
+            where: { email: 'admin@example.com' },
+          })
+        ).id,
+        expiresAt: fixture.token.expiresAt,
+      },
+    });
+    const secondIssuance = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.31',
+      payload: {
+        activationToken: secondSecret.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(secondIssuance.statusCode).toBe(409);
+    expect(secondIssuance.json().code).toBe('CREDENTIAL_ALREADY_ISSUED');
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { tokenHash: secondSecret.tokenHash },
+      }),
+    ).toMatchObject({ status: ActivationTokenStatus.ACTIVE });
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.32',
+      payload: {
+        activationToken: generateActivationToken().rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const invalidKey = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.33',
+      payload: {
+        activationToken: fixture.rawToken,
+        publicKey: 'not-a-public-key',
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(invalidKey.statusCode).toBe(400);
+    expect(invalidKey.json().code).toBe('INVALID_PUBLIC_KEY');
+
+    const revokedFixture = await openActivation('CRED-API-REVOKED');
+    await prisma.activationToken.update({
+      where: { id: revokedFixture.token.id },
+      data: {
+        status: ActivationTokenStatus.REVOKED,
+        revokedAt: new Date(),
+        revocationReason: 'Lost QR',
+      },
+    });
+    const revoked = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.34',
+      payload: {
+        activationToken: revokedFixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(revoked.statusCode).toBe(409);
+    expect(revoked.json().code).toBe('ACTIVATION_TOKEN_REVOKED');
+
+    const expiredFixture = await openActivation('CRED-API-EXPIRED');
+    await prisma.activationToken.update({
+      where: { id: expiredFixture.token.id },
+      data: {
+        generatedAt: new Date(Date.now() - 2_000),
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const expired = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.35',
+      payload: {
+        activationToken: expiredFixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(expired.statusCode).toBe(409);
+    expect(expired.json().code).toBe('ACTIVATION_TOKEN_EXPIRED');
+
+    const ineligibleFixture = await openActivation('CRED-API-INELIGIBLE');
+    await prisma.registrationRecord.update({
+      where: { id: ineligibleFixture.registration.id },
+      data: { eligible: false },
+    });
+    const ineligible = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.36',
+      payload: {
+        activationToken: ineligibleFixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(ineligible.statusCode).toBe(409);
+    expect(ineligible.json().code).toBe('REGISTRATION_NOT_ELIGIBLE');
+
+    const closedFixture = await openActivation('CRED-API-CLOSED');
+    await prisma.votingScope.update({
+      where: { id: closedFixture.scope.id },
+      data: { status: 'CLOSED' },
+    });
+    const closed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.37',
+      payload: {
+        activationToken: closedFixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(closed.statusCode).toBe(409);
+    expect(closed.json().code).toBe('ACTIVATION_SCOPE_NOT_OPEN');
+
+    const mismatchFixture = await openActivation('CRED-API-KEY');
+    await prisma.votingScope.update({
+      where: { id: mismatchFixture.scope.id },
+      data: { issuerKeyVersion: 'other-version' },
+    });
+    const mismatch = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.38',
+      payload: {
+        activationToken: mismatchFixture.rawToken,
+        publicKey: voterPublicKey(),
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(mismatch.statusCode).toBe(409);
+    expect(mismatch.json().code).toBe('ISSUER_KEY_MISMATCH');
+
+    const audits = await prisma.auditEvent.findMany({
+      where: {
+        eventType: { in: ['CREDENTIAL_ISSUED', 'ACTIVATION_TOKEN_REDEEMED'] },
+      },
+    });
+    expect(audits.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        'CREDENTIAL_ISSUED',
+        'ACTIVATION_TOKEN_REDEEMED',
+      ]),
+    );
+    expect(JSON.stringify(audits)).not.toContain(fixture.rawToken);
+    expect(JSON.stringify(audits)).not.toContain(
+      testIssuer.privateKeyPkcs8DerBase64url,
+    );
+    expect(JSON.stringify(audits)).not.toContain(publicKey);
+
+    for (let attempt = 0; attempt < 10; attempt += 1)
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/public/activate',
+            remoteAddress: '127.0.0.39',
+            payload: {
+              activationToken: generateActivationToken().rawToken,
+              publicKey: voterPublicKey(),
+              publicKeyAlgorithm: 'Ed25519',
+              clientNonce: generateClientNonce(),
+            },
+          })
+        ).statusCode,
+      ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/public/activate',
+          remoteAddress: '127.0.0.39',
+          payload: {
+            activationToken: generateActivationToken().rawToken,
+            publicKey: voterPublicKey(),
+            publicKeyAlgorithm: 'Ed25519',
+            clientNonce: generateClientNonce(),
+          },
+        })
+      ).statusCode,
+    ).toBe(429);
+  });
+
+  it('enforces issued credential storage invariants', async () => {
+    const fixture = await openActivation('CRED-DB-1');
+    const publicKey = voterPublicKey();
+    const now = new Date();
+    const payload = {
+      schemaVersion: 1,
+      credentialId: '33333333-3333-4333-8333-333333333333',
+      scopeId: fixture.scope.id,
+      publicKey,
+      publicKeyAlgorithm: 'Ed25519',
+      weight: '2.5000',
+      credentialVersion: 1,
+      issuedAt: now.toISOString(),
+      expiresAt: fixture.scope.credentialExpiresAt.toISOString(),
+      issuer: config.ISSUER_ID,
+    };
+    const canonicalPayload = canonicalizeCredentialPayload(payload);
+    const first = await prisma.issuedCredential.create({
+      data: {
+        registrationRecordId: fixture.registration.id,
+        votingScopeId: fixture.scope.id,
+        activationTokenId: fixture.token.id,
+        credentialId: payload.credentialId,
+        publicKey,
+        publicKeyFingerprint: 'a'.repeat(64),
+        publicKeyAlgorithm: 'Ed25519',
+        weight: new Prisma.Decimal('2.5000'),
+        issuedAt: now,
+        expiresAt: fixture.scope.credentialExpiresAt,
+        canonicalPayload,
+        signature: 'b'.repeat(86),
+        issuerKeyVersion: config.ISSUER_KEY_VERSION,
+      },
+    });
+    const secondToken = generateActivationToken();
+    const otherToken = await prisma.activationToken.create({
+      data: {
+        registrationRecordId: fixture.registration.id,
+        votingScopeId: fixture.scope.id,
+        tokenHash: secondToken.tokenHash,
+        tokenPrefixForSupport: secondToken.tokenPrefixForSupport,
+        generatedBy: (
+          await prisma.adminUser.findUniqueOrThrow({
+            where: { email: 'admin@example.com' },
+          })
+        ).id,
+        expiresAt: fixture.token.expiresAt,
+        generatedAt: new Date(Date.now() - 1_000),
+        status: ActivationTokenStatus.REVOKED,
+        revokedAt: now,
+        revocationReason: 'Replaced for invariant test',
+      },
+    });
+    await expect(
+      prisma.issuedCredential.create({
+        data: {
+          registrationRecordId: fixture.registration.id,
+          votingScopeId: fixture.scope.id,
+          activationTokenId: otherToken.id,
+          credentialId: '44444444-4444-4444-8444-444444444444',
+          publicKey: voterPublicKey(),
+          publicKeyFingerprint: 'c'.repeat(64),
+          publicKeyAlgorithm: 'Ed25519',
+          weight: new Prisma.Decimal('1.0000'),
+          issuedAt: now,
+          expiresAt: fixture.scope.credentialExpiresAt,
+          canonicalPayload: '{}',
+          signature: 'd'.repeat(86),
+          issuerKeyVersion: config.ISSUER_KEY_VERSION,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      prisma.issuedCredential.create({
+        data: {
+          registrationRecordId: fixture.registration.id,
+          votingScopeId: fixture.scope.id,
+          activationTokenId: otherToken.id,
+          credentialId: '55555555-5555-4555-8555-555555555555',
+          publicKey: voterPublicKey(),
+          publicKeyFingerprint: 'not-hex',
+          publicKeyAlgorithm: 'Ed25519',
+          weight: new Prisma.Decimal('1.0000'),
+          issuedAt: now,
+          expiresAt: now,
+          canonicalPayload: '{}',
+          signature: 'e'.repeat(86),
+          issuerKeyVersion: config.ISSUER_KEY_VERSION,
+        },
+      }),
+    ).rejects.toThrow();
+    expect(first.publicKey).toHaveLength(43);
   });
 
   it('changes password and requires enrolled TOTP at login', async () => {

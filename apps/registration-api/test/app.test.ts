@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import type { AppConfig } from '../src/config.js';
-const config: AppConfig = {
-  NODE_ENV: 'test',
-  HOST: '127.0.0.1',
-  PORT: 3001,
+import { testConfig } from './test-config.js';
+const config = testConfig({
   DATABASE_URL: 'postgresql://x:x@localhost:5432/x',
-  ADMIN_ORIGIN: 'http://localhost:5173',
-  LOG_LEVEL: 'silent',
-};
+});
 describe('health', () => {
   it('reports live and ready', async () => {
     const app = await buildApp(config, async () => undefined);

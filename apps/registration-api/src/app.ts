@@ -4,7 +4,9 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerAuthRoutes } from './auth.js';
 import { registerActivationTokenRoutes } from './activation-token-routes.js';
+import { registerCredentialRoutes } from './credential-routes.js';
 import type { AppConfig } from './config.js';
+import { createIssuer } from './issuer-keys.js';
 import databasePlugin from './plugins/database.js';
 import { registerImportRoutes } from './imports.js';
 import { registerScopeRoutes } from './scopes.js';
@@ -19,7 +21,13 @@ export async function buildApp(
         ? false
         : {
             level: config.LOG_LEVEL,
-            redact: ['req.headers.authorization', 'req.headers.cookie'],
+            redact: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'req.body.activationToken',
+              'req.body.publicKey',
+              'req.body.clientNonce',
+            ],
           },
   });
   await app.register(databasePlugin);
@@ -40,6 +48,7 @@ export async function buildApp(
   app.get('/api/v1', async () => ({ service: 'registration-api', version: 1 }));
   registerAuthRoutes(app, config.NODE_ENV === 'production');
   registerActivationTokenRoutes(app);
+  registerCredentialRoutes(app, createIssuer(config));
   registerScopeRoutes(app);
   registerImportRoutes(app);
   registerRegistrationRoutes(app);

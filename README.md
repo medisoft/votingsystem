@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Stage 1 foundation for the Registration and Credential Issuance Service: Fastify API, React administrative shell, PostgreSQL through Prisma, and automated quality checks. It intentionally contains no authentication or registration business functionality.
+Registration and Credential Issuance Service through Stage 7: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, and prototype Ed25519 credential issuance.
 
 ## Requirements
 
@@ -59,7 +59,7 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 
 ## Known limitations
 
-- Voting scopes, voter records, CSV imports, and activation-token delivery are implemented. Activation-token redemption, credential issuance, and voting remain for later stages.
+- Voting scopes, voter records, CSV imports, activation tokens, and prototype credential issuance are implemented. Credential revocation, reissuance, and voting remain for later stages.
 - Account editing and the complete audit viewer are deferred.
 - Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
 
@@ -110,6 +110,20 @@ Stage 6 Step 3 generates the opaque-token QR locally in the administrator browse
 The admin uses qrcode 1.5.4 instead of a custom QR encoder. It was selected for its established Node/browser implementation and PNG data-URL support. The package is MIT licensed, declares Node >=10.13 compatibility, and is compatible with this project’s Node 24, React 19, Vite 6, and TypeScript setup. At selection time, npm reported no known production dependency vulnerabilities; qrcode 1.5.4 and the @types/qrcode 1.5.6 definitions were the current published releases. Maintenance and release evidence: https://www.npmjs.com/package/qrcode and https://github.com/soldair/node-qrcode.
 
 The admin uses jsPDF 4.2.1 for browser-local PDF generation instead of implementing the PDF format. It was selected because it is an established client-side library with built-in TypeScript definitions, current releases, and direct PNG embedding. Version 4.2.1 is MIT licensed, compatible with this project’s Node 24, React 19, Vite 6, and TypeScript setup, and includes fixes for the security issues disclosed in its release notes. At selection time, npm audit reported no known vulnerabilities. Maintenance, license, release, and security evidence: https://www.npmjs.com/package/jspdf and https://github.com/parallax/jsPDF/releases.
+
+## Stage 7 prototype credential issuance
+
+POST /api/v1/public/activate accepts an unused activation token and a 32-byte Ed25519 voter public key encoded as canonical base64url. The API never accepts or stores the voter private key. A valid request returns one signed credential whose payload matches the Stage 7 schema, then permanently redeems the token. Repeating the same token and public key returns the original credential without creating another row. Expired, revoked, ineligible, closed-scope, and already-redeemed tokens with a different public key are rejected.
+
+GET /api/v1/public/issuer-keys publishes the current issuer public key, algorithm, key version, and issuer identifier. Independent verifiers reconstruct the canonical JSON (fixed field order, UTF-8) and check the Ed25519 signature against that public key.
+
+Issuer signatures use Node.js `crypto` Ed25519 instead of an extra cryptographic library. Node 24 provides first-class Ed25519 generate, sign, and verify support, so adding tweetnacl or libsodium would duplicate a maintained platform API. Keys are generated outside application source and loaded from `ISSUER_PRIVATE_KEY` (PKCS8 DER, base64url) or `ISSUER_PRIVATE_KEY_FILE` (PKCS8 PEM). `ISSUER_KEY_VERSION` must match the voting scope’s `issuerKeyVersion` at issuance time. The Compose and `.env.example` values are development-only; generate a new key for any other environment:
+
+    node -e "const {generateKeyPairSync}=require('node:crypto'); console.log(generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64url'))"
+
+This stage provides operational anonymity only. The issuer still stores a temporary identity-to-credential link on `IssuedCredential` (`registrationRecordId` plus `credentialId` and public-key fingerprint). That link is required for the direct-signature prototype and will be removed or redesigned in the later blind-credential stage. Credential revocation and reissuance remain Stage 8.
+
+When creating a local voting scope, set issuer key version to `dev-2026-01` so it matches the Compose issuer.
 
 - Local Docker credentials are development-only.
 - HTTPS, backups, deployment secrets, and hardening belong to later stages.
