@@ -81,6 +81,22 @@ Shared orientation, search, and MCP tool rules. Copy this section to other repos
 
 ## Repository Context Tools
 
+### MCP General prupose description
+
+Prefer the specialized MCP tool over generic shell commands when it can answer the question directly.
+
+Do not call multiple MCPs for the same information unless the first result is insufficient.
+
+- Use VEXP when you need to locate task-relevant code, understand where a feature is implemented, or retrieve semantic context from the repository.
+
+- Use FastCtx when you need to inspect exact files, search text/patterns, read specific ranges, or run repository-local commands efficiently.
+
+- Use CodeGraphContext when you need callers/callees, dependency relationships, imports, symbol relationships, call chains, inheritance, or architecture-level impact.
+
+- Use code-review-graph when reviewing a change, identifying affected code, or assessing regression/impact risk.
+
+- Use RTK for shell commands, git output, tests, builds, linters, and other verbose command output when RTK supports the command.
+
 ### Mandatory first step
 For any non-trivial task, the **first tool call** must be VEXP `run_pipeline`, unless the skip conditions below are clearly met.
 Do not start with a chain of grep / read / search.
