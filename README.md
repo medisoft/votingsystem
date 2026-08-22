@@ -45,6 +45,7 @@ For host-based development, copy each app's .env.example to .env, run npm run de
 ## Verification
 
 Check /health/live, /health/ready, and /api/v1 on port 3001. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
+Check /health/live, /health/ready, and /api/v1 on port 3001. The readiness endpoint verifies PostgreSQL connectivity. Run npm run check for formatting, linting, type checking, tests, and builds.
 
 ## Stage 2 authentication
 
