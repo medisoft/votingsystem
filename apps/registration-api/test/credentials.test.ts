@@ -3,11 +3,13 @@ import { Prisma } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import {
   canonicalizeCredentialPayload,
+  canonicalizeRevocationList,
   fingerprintPublicKey,
   formatVotingWeight,
   generateClientNonce,
   isValidClientNonce,
   parseEd25519PublicKey,
+  publicCredentialStatus,
   type CredentialPayload,
 } from '../src/credentials.js';
 import {
@@ -101,5 +103,64 @@ describe('credential cryptography', () => {
     expect(formatVotingWeight(new Prisma.Decimal('2.5'))).toBe('2.5000');
     expect(isValidClientNonce(generateClientNonce())).toBe(true);
     expect(isValidClientNonce('short')).toBe(false);
+  });
+
+  it('canonicalizes revocation lists and maps public credential status', () => {
+    const canonical = canonicalizeRevocationList({
+      schemaVersion: 1,
+      scopeId: '22222222-2222-4222-8222-222222222222',
+      generatedAt: '2026-07-14T18:00:00.000Z',
+      issuer: 'condominium-registration-service',
+      revoked: [
+        {
+          credentialId: '11111111-1111-4111-8111-111111111111',
+          credentialVersion: 1,
+          revokedAt: '2026-07-15T12:00:00.000Z',
+        },
+      ],
+    });
+    expect(canonical).toBe(
+      '{"schemaVersion":1,"scopeId":"22222222-2222-4222-8222-222222222222","generatedAt":"2026-07-14T18:00:00.000Z","issuer":"condominium-registration-service","revoked":[{"credentialId":"11111111-1111-4111-8111-111111111111","credentialVersion":1,"revokedAt":"2026-07-15T12:00:00.000Z"}]}',
+    );
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    expect(
+      publicCredentialStatus(
+        {
+          credentialId: '11111111-1111-4111-8111-111111111111',
+          credentialVersion: 1,
+          status: 'ACTIVE',
+          expiresAt: new Date('2026-08-31T23:59:59.000Z'),
+          revokedAt: null,
+          replacedByCredentialId: null,
+        },
+        now,
+      ),
+    ).toMatchObject({ status: 'ACTIVE', replaced: false, revokedAt: null });
+    expect(
+      publicCredentialStatus(
+        {
+          credentialId: '11111111-1111-4111-8111-111111111111',
+          credentialVersion: 1,
+          status: 'REVOKED',
+          expiresAt: new Date('2026-08-31T23:59:59.000Z'),
+          revokedAt: new Date('2026-07-15T12:00:00.000Z'),
+          replacedByCredentialId: '33333333-3333-4333-8333-333333333333',
+        },
+        now,
+      ),
+    ).toMatchObject({ status: 'REVOKED', replaced: true });
+    expect(
+      publicCredentialStatus(
+        {
+          credentialId: '11111111-1111-4111-8111-111111111111',
+          credentialVersion: 1,
+          status: 'ACTIVE',
+          expiresAt: new Date('2026-07-15T00:00:00.000Z'),
+          revokedAt: null,
+          replacedByCredentialId: null,
+        },
+        now,
+      ).status,
+    ).toBe('EXPIRED');
   });
 });

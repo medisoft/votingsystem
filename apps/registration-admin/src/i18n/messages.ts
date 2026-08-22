@@ -976,6 +976,86 @@ export const messages = {
     en: 'The unit already exists.',
     es: 'La unidad ya existe.',
   },
+  issuedCredential: {
+    description: 'Heading for the selected issued voting credential.',
+    en: 'Issued credential',
+    es: 'Credencial emitida',
+  },
+  credentialStatus: {
+    description:
+      'Label for whether a registration has an issued voting credential.',
+    en: 'Credential',
+    es: 'Credencial',
+  },
+  credentialStatusIssued: {
+    description: 'Status when a registration has an active issued credential.',
+    en: 'Issued',
+    es: 'Emitida',
+  },
+  credentialStatusRevoked: {
+    description: 'Status when the issued credential has been revoked.',
+    en: 'Revoked',
+    es: 'Revocada',
+  },
+  credentialStatusNone: {
+    description: 'Status when no voting credential has been issued.',
+    en: 'Not issued',
+    es: 'No emitida',
+  },
+  credentialVersionLabel: {
+    description: 'Issued credential version number.',
+    en: 'Version {version}',
+    es: 'Versión {version}',
+  },
+  credentialExpires: {
+    description:
+      'Issued credential expiration with a substituted localized date.',
+    en: 'Expires: {date}',
+    es: 'Vence: {date}',
+  },
+  revokeCredential: {
+    description: 'Button that revokes an active issued credential.',
+    en: 'Revoke credential',
+    es: 'Revocar credencial',
+  },
+  revokingCredential: {
+    description: 'Button text while a credential is revoked.',
+    en: 'Revoking credential…',
+    es: 'Revocando credencial…',
+  },
+  reissueCredential: {
+    description:
+      'Button that revokes the current credential and issues a replacement activation QR.',
+    en: 'Reissue credential',
+    es: 'Reemitir credencial',
+  },
+  reissuingCredential: {
+    description:
+      'Button text while a replacement credential activation is generated.',
+    en: 'Reissuing credential…',
+    es: 'Reemitiendo credencial…',
+  },
+  reissueReason: {
+    description: 'Label for the reason recorded when a credential is replaced.',
+    en: 'Reissue reason',
+    es: 'Motivo de reemisión',
+  },
+  credentialRevoked: {
+    description: 'Success message after an issued credential is revoked.',
+    en: 'Credential revoked.',
+    es: 'Credencial revocada.',
+  },
+  credentialReissued: {
+    description:
+      'Success message after a replacement activation QR is generated.',
+    en: 'Replacement activation QR generated. The previous credential is revoked.',
+    es: 'Se generó el QR de activación de reemplazo. La credencial anterior está revocada.',
+  },
+  credentialActionFailed: {
+    description: 'Error shown when credential revocation or reissuance fails.',
+    en: 'Unable to update the credential: {error}',
+    es: 'No fue posible actualizar la credencial: {error}',
+  },
   statusDraft: {
     description: 'Display label for the DRAFT voting-scope status.',
     en: 'Draft',

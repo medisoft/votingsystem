@@ -24,7 +24,7 @@ After selecting the version in .nvmrc, install dependencies and generate the Pri
     npm run db:generate
     docker compose up
 
-That single Compose command starts PostgreSQL, the API, and the admin frontend, and seeds a development system administrator. Open http://localhost:5173 and sign in as `admin@example.com` with password `local-dev-password`. The API runs on http://localhost:3001.
+That single Compose command starts PostgreSQL, the API, and the admin frontend, and seeds a development system administrator. Open http://localhost:5173 and sign in as `admin@example.com` with password `ManualTest-2026`. The API runs on http://localhost:3001.
 
 These Compose credentials are development-only. Restarting the API container resets that administrator to the same password.
 
@@ -34,9 +34,9 @@ PostgreSQL is exposed to the host on port `15432`; containers continue to connec
 
 For host-based development, or to reset the password after changing it, run:
 
-    ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='choose-at-least-12-characters' npm run db:seed
+    npm run db:seed
 
-The seed is idempotent for the supplied email. It hashes the password with Argon2id and never prints it.
+That restores `admin@example.com` to `ManualTest-2026`. Override with `ADMIN_EMAIL` and `ADMIN_PASSWORD` only when you need a different development account. The seed is idempotent for the supplied email. It hashes the password with Argon2id and never prints it.
 
 Database integration tests run only against the isolated `registration_test` database. Run `npm run test:integration`; it starts an ephemeral PostgreSQL test service on host port `15433`, applies migrations, enables reset permission, and runs the API integration suite. The suite also refuses to reset any database not named `registration_test`.
 
@@ -59,7 +59,7 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 
 ## Known limitations
 
-- Voting scopes, voter records, CSV imports, activation tokens, and prototype credential issuance are implemented. Credential revocation, reissuance, and voting remain for later stages.
+- Voting scopes, voter records, CSV imports, activation tokens, prototype credential issuance, revocation, and reissuance are implemented. Anonymous voting remains for later stages.
 - Account editing and the complete audit viewer are deferred.
 - Audit events are hash-linked, but full verification and concurrency hardening belong to Stage 9.
 
@@ -121,7 +121,24 @@ Issuer signatures use Node.js `crypto` Ed25519 instead of an extra cryptographic
 
     node -e "const {generateKeyPairSync}=require('node:crypto'); console.log(generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64url'))"
 
-This stage provides operational anonymity only. The issuer still stores a temporary identity-to-credential link on `IssuedCredential` (`registrationRecordId` plus `credentialId` and public-key fingerprint). That link is required for the direct-signature prototype and will be removed or redesigned in the later blind-credential stage. Credential revocation and reissuance remain Stage 8.
+This stage provides operational anonymity only. The issuer still stores a temporary identity-to-credential link on `IssuedCredential` (`registrationRecordId` plus `credentialId` and public-key fingerprint). That link is required for the direct-signature prototype and will be removed or redesigned in the later blind-credential stage.
+
+## Stage 8 credential revocation and reissuance
+
+POST /api/v1/admin/credentials/:id/revoke requires registration-write permission and a nonblank reason. It marks the credential REVOKED and revokes leftover ACTIVE activation tokens for that registration and scope. Auditors receive 403.
+
+POST /api/v1/admin/credentials/:id/reissue performs the recovery workflow in one transaction: revoke the current credential if it is still ACTIVE, revoke leftover tokens, increment the next credential version, and return a one-time replacement activation token. The voter completes replacement through the normal public activation endpoint. The previous credential stays invalid. A credential that already has a successor is rejected.
+
+GET /api/v1/public/credential-status/:credentialFingerprint returns ACTIVE, REVOKED, or EXPIRED for a credential UUID or SHA-256 public-key fingerprint. GET /api/v1/public/scopes/:scopeId/revocations returns a signed list of revoked credential identifiers. Neither public endpoint includes owner, unit, registration id, public key, or revocation reason.
+
+The administrative UI shows credential status on each record and, for the selected registration and scope, supports revoke and reissue. Reissue reuses the existing one-time QR delivery screen. All recovery actions are audited as CREDENTIAL_REVOKED and CREDENTIAL_REISSUED.
+
+Pending manual tests:
+
+- After redeeming an activation token with a voter public key, `GET /api/v1/public/credential-status/<credentialId>` returns `ACTIVE`.
+- Revoke that credential from the dashboard with a reason. Public status becomes `REVOKED`, and `GET /api/v1/public/scopes/<scopeId>/revocations` lists that credential ID and verifies against the issuer public key.
+- Reissue with a reason, activate the replacement QR with a new public key. The new payload `credentialVersion` is `2`, and the old credential stays `REVOKED` with `replaced: true`.
+- Reissuing the original credential again returns `CREDENTIAL_ALREADY_REPLACED`.
 
 When creating a local voting scope, set issuer key version to `dev-2026-01` so it matches the Compose issuer.
 

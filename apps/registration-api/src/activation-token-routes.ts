@@ -7,7 +7,10 @@ import {
 } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { generateActivationToken } from './activation-tokens.js';
+import {
+  generateActivationToken,
+  publicActivationToken,
+} from './activation-tokens.js';
 import { appendAudit } from './audit.js';
 
 const uuid = z.string().uuid();
@@ -22,34 +25,6 @@ const deliveryBody = z.object({
   deliveryMethod: z.string().trim().min(1).max(64),
 });
 const ACTIVATION_TOKEN_TRANSACTION_TIMEOUT_MS = 60_000;
-
-const publicToken = (token: {
-  id: string;
-  registrationRecordId: string;
-  votingScopeId: string;
-  tokenPrefixForSupport: string;
-  status: ActivationTokenStatus;
-  expiresAt: Date;
-  generatedAt: Date;
-  deliveryMethod: string | null;
-  deliveredAt: Date | null;
-  redeemedAt: Date | null;
-  revokedAt: Date | null;
-  revocationReason: string | null;
-}) => ({
-  id: token.id,
-  registrationRecordId: token.registrationRecordId,
-  votingScopeId: token.votingScopeId,
-  tokenPrefixForSupport: token.tokenPrefixForSupport,
-  status: token.status,
-  expiresAt: token.expiresAt,
-  generatedAt: token.generatedAt,
-  deliveryMethod: token.deliveryMethod,
-  deliveredAt: token.deliveredAt,
-  redeemedAt: token.redeemedAt,
-  revokedAt: token.revokedAt,
-  revocationReason: token.revocationReason,
-});
 
 /**
  * Locks and validates the registration, scope, and token used for delivery.
@@ -268,7 +243,7 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
         return reply.code(result.status ?? 500).send({ code: result.error });
       return reply.code(201).send({
         activationToken: {
-          ...publicToken(result.token),
+          ...publicActivationToken(result.token),
           rawToken: generated.rawToken,
         },
       });
@@ -337,7 +312,7 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
       );
       if (!('token' in result))
         return reply.code(result.status).send({ code: result.error });
-      return { activationToken: publicToken(result.token) };
+      return { activationToken: publicActivationToken(result.token) };
     },
   );
 
@@ -407,7 +382,7 @@ export function registerActivationTokenRoutes(app: FastifyInstance) {
       );
       if (!('token' in result))
         return reply.code(result.status).send({ code: result.error });
-      return { activationToken: publicToken(result.token) };
+      return { activationToken: publicActivationToken(result.token) };
     },
   );
 }

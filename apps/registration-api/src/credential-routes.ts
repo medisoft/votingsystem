@@ -11,14 +11,24 @@ import { z } from 'zod';
 import { appendAudit } from './audit.js';
 import { hashActivationToken } from './activation-tokens.js';
 import {
+  linkReplacementCredential,
+  nextCredentialVersion,
+  publicIssuedCredential,
+  reissueCredential,
+  revokeCredential,
+} from './credential-admin.js';
+import {
   CREDENTIAL_PUBLIC_KEY_ALGORITHM,
   CREDENTIAL_SCHEMA_VERSION,
   canonicalizeCredentialPayload,
+  canonicalizeRevocationList,
   fingerprintPublicKey,
   formatVotingWeight,
   isValidClientNonce,
   parseEd25519PublicKey,
+  publicCredentialStatus,
   type CredentialPayload,
+  type RevocationListPayload,
 } from './credentials.js';
 import { signCanonical, type Issuer } from './issuer-keys.js';
 
@@ -28,6 +38,17 @@ const activateBody = z.object({
   publicKeyAlgorithm: z.literal(CREDENTIAL_PUBLIC_KEY_ALGORITHM),
   clientNonce: z.string().min(1).max(64),
 });
+const uuid = z.string().uuid();
+const credentialParams = z.object({ id: uuid });
+const revokeBody = z.object({ reason: z.string().trim().min(3).max(500) });
+const reissueBody = revokeBody.extend({
+  expiresAt: z.string().datetime({ offset: true }).optional(),
+  deliveryMethod: z.string().trim().min(1).max(64).optional(),
+});
+const credentialStatusParams = z.object({
+  credentialFingerprint: z.string().min(1).max(64),
+});
+const scopeParams = z.object({ scopeId: uuid });
 
 const ACTIVATION_TRANSACTION_TIMEOUT_MS = 60_000;
 
@@ -257,6 +278,18 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
               error: 'CREDENTIAL_ALREADY_ISSUED' as const,
               status: 409,
             };
+          const previous = await tx.issuedCredential.findFirst({
+            where: {
+              registrationRecordId: context.registration.id,
+              votingScopeId: context.scope.id,
+            },
+            orderBy: { credentialVersion: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              replacedByCredentialId: true,
+            },
+          });
           const weight = new Prisma.Decimal(
             eligibility?.votingWeight ?? context.registration.votingWeight,
           );
@@ -267,7 +300,11 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
             publicKey,
             publicKeyAlgorithm: CREDENTIAL_PUBLIC_KEY_ALGORITHM,
             weight: formatVotingWeight(weight),
-            credentialVersion: 1,
+            credentialVersion: await nextCredentialVersion(
+              tx,
+              context.registration.id,
+              context.scope.id,
+            ),
             issuedAt: now.toISOString(),
             expiresAt: context.scope.credentialExpiresAt.toISOString(),
             issuer: issuer.issuer,
@@ -308,6 +345,7 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
               issuerKeyVersion: issuer.keyVersion,
             },
           });
+          await linkReplacementCredential(tx, previous, credential.id);
           await appendAudit(tx, {
             actorType: ActorType.ANONYMOUS,
             eventType: 'CREDENTIAL_ISSUED',
@@ -320,6 +358,7 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
               activationTokenId: context.token.id,
               tokenPrefixForSupport: context.token.tokenPrefixForSupport,
               publicKeyFingerprint: credential.publicKeyFingerprint,
+              credentialVersion: credential.credentialVersion,
               issuerKeyVersion: issuer.keyVersion,
             },
           });
@@ -342,6 +381,139 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
         return reply.code(result.status).send({ code: result.error });
       return reply.code(result.replay ? 200 : 201).send({
         credential: credentialEnvelope(result.credential),
+      });
+    },
+  );
+
+  app.get(
+    '/api/v1/public/credential-status/:credentialFingerprint',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const params = credentialStatusParams.safeParse(request.params);
+      if (!params.success)
+        return reply
+          .code(400)
+          .send({ code: 'INVALID_CREDENTIAL_STATUS_REQUEST' });
+      const lookup = params.data.credentialFingerprint.toLowerCase();
+      const where = uuid.safeParse(lookup).success
+        ? { credentialId: lookup }
+        : /^[0-9a-f]{64}$/.test(lookup)
+          ? { publicKeyFingerprint: lookup }
+          : null;
+      if (!where)
+        return reply
+          .code(400)
+          .send({ code: 'INVALID_CREDENTIAL_STATUS_REQUEST' });
+      const record = await app.prisma.issuedCredential.findFirst({
+        where,
+        orderBy: [{ status: 'asc' }, { issuedAt: 'desc' }],
+        select: {
+          credentialId: true,
+          credentialVersion: true,
+          status: true,
+          expiresAt: true,
+          revokedAt: true,
+          replacedByCredentialId: true,
+        },
+      });
+      if (!record)
+        return reply.code(404).send({ code: 'CREDENTIAL_NOT_FOUND' });
+      return publicCredentialStatus(record, new Date());
+    },
+  );
+
+  app.get(
+    '/api/v1/public/scopes/:scopeId/revocations',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const params = scopeParams.safeParse(request.params);
+      if (!params.success)
+        return reply.code(400).send({ code: 'INVALID_SCOPE_ID' });
+      const scope = await app.prisma.votingScope.findUnique({
+        where: { id: params.data.scopeId },
+        select: { id: true },
+      });
+      if (!scope) return reply.code(404).send({ code: 'SCOPE_NOT_FOUND' });
+      const revoked = await app.prisma.issuedCredential.findMany({
+        where: { votingScopeId: scope.id, status: 'REVOKED' },
+        select: {
+          credentialId: true,
+          credentialVersion: true,
+          revokedAt: true,
+        },
+        orderBy: { credentialId: 'asc' },
+      });
+      const payload: RevocationListPayload = {
+        schemaVersion: CREDENTIAL_SCHEMA_VERSION,
+        scopeId: scope.id,
+        generatedAt: new Date().toISOString(),
+        issuer: issuer.issuer,
+        revoked: revoked.map((entry) => ({
+          credentialId: entry.credentialId,
+          credentialVersion: entry.credentialVersion,
+          revokedAt: entry.revokedAt!.toISOString(),
+        })),
+      };
+      const canonical = canonicalizeRevocationList(payload);
+      return {
+        payload: JSON.parse(canonical) as RevocationListPayload,
+        signature: signCanonical(canonical, issuer.privateKey),
+        keyVersion: issuer.keyVersion,
+      };
+    },
+  );
+
+  app.post(
+    '/api/v1/admin/credentials/:id/revoke',
+    {
+      preHandler: app.requireRegistrationWrite,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const params = credentialParams.safeParse(request.params);
+      const body = revokeBody.safeParse(request.body);
+      if (!params.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_REVOCATION_REQUEST' });
+      const result = await revokeCredential(
+        app.prisma,
+        params.data.id,
+        body.data.reason,
+        { id: request.admin!.id, sourceIp: request.ip },
+      );
+      if (!result.ok)
+        return reply.code(result.status).send({ code: result.error });
+      return { credential: publicIssuedCredential(result.credential) };
+    },
+  );
+
+  app.post(
+    '/api/v1/admin/credentials/:id/reissue',
+    {
+      preHandler: app.requireRegistrationWrite,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const params = credentialParams.safeParse(request.params);
+      const body = reissueBody.safeParse(request.body);
+      if (!params.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_REISSUE_REQUEST' });
+      const result = await reissueCredential(
+        app.prisma,
+        {
+          credentialId: params.data.id,
+          reason: body.data.reason,
+          ...(body.data.expiresAt ? { expiresAt: body.data.expiresAt } : {}),
+          ...(body.data.deliveryMethod
+            ? { deliveryMethod: body.data.deliveryMethod }
+            : {}),
+        },
+        { id: request.admin!.id, sourceIp: request.ip },
+      );
+      if (!result.ok)
+        return reply.code(result.status).send({ code: result.error });
+      return reply.code(201).send({
+        credential: publicIssuedCredential(result.credential),
+        activationToken: result.activationToken,
       });
     },
   );

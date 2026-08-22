@@ -52,6 +52,22 @@ const include = {
       deliveredAt: true,
     },
   },
+  issuedCredentials: {
+    orderBy: { credentialVersion: 'desc' as const },
+    select: {
+      id: true,
+      credentialId: true,
+      votingScopeId: true,
+      status: true,
+      credentialVersion: true,
+      issuedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      revocationReason: true,
+      publicKeyFingerprint: true,
+      replacedByCredentialId: true,
+    },
+  },
 };
 const auditorSelect = {
   id: true,
@@ -66,6 +82,20 @@ const auditorSelect = {
       eligible: true,
       votingWeight: true,
       votingScope: { select: { id: true, name: true, status: true } },
+    },
+  },
+  issuedCredentials: {
+    orderBy: { credentialVersion: 'desc' as const },
+    select: {
+      id: true,
+      credentialId: true,
+      votingScopeId: true,
+      status: true,
+      credentialVersion: true,
+      issuedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      replacedByCredentialId: true,
     },
   },
 } satisfies Prisma.RegistrationRecordSelect;

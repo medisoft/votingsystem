@@ -39,7 +39,7 @@ services:
       DATABASE_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
       ADMIN_ORIGIN: http://localhost:5173
       ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: local-dev-password
+      ADMIN_PASSWORD: ManualTest-2026
       PORT: '3001'
       ISSUER_PRIVATE_KEY: MC4CAQAwBQYDK2VwBCIEIDCy4kdw2B5wJxNs_n1-IOsJfn7KkG0u9UUM4Y_XFM31
       ISSUER_KEY_VERSION: dev-2026-01

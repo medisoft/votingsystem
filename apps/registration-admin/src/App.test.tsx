@@ -491,7 +491,11 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
         status: 200,
         json: async () => ({ scopes: [scope] }),
       };
-    if (path.includes('/api/v1/admin/registrations?'))
+    if (
+      path.includes('/api/v1/admin/registrations') &&
+      !path.includes('/import') &&
+      !path.includes('/activation-token')
+    )
       return {
         ok: true,
         status: 200,
@@ -726,6 +730,168 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
   expect(fetchMock).toHaveBeenCalledWith(
     expect.stringContaining('/api/v1/admin/registrations/record-1'),
     expect.objectContaining({ method: 'DELETE' }),
+  );
+});
+
+it('revokes and reissues an issued credential from the recovery form', async () => {
+  const scope = {
+    id: 'scope-1',
+    name: 'Annual vote',
+    description: null,
+    status: 'ACTIVATION_OPEN',
+    startsAt: '2035-01-01T12:00:00.000Z',
+    endsAt: '2035-01-01T18:00:00.000Z',
+    activationStartsAt: '2035-01-01T10:00:00.000Z',
+    activationEndsAt: '2035-01-01T17:00:00.000Z',
+    credentialExpiresAt: '2035-01-02T00:00:00.000Z',
+    votingWeightsEnabled: false,
+    issuerKeyVersion: '2035-01',
+    version: 1,
+  };
+  let credential: Record<string, unknown> = {
+    id: 'cred-1',
+    credentialId: '11111111-1111-4111-8111-111111111111',
+    votingScopeId: 'scope-1',
+    status: 'ACTIVE',
+    credentialVersion: 1,
+    issuedAt: '2035-01-01T11:00:00.000Z',
+    expiresAt: scope.credentialExpiresAt,
+    revokedAt: null,
+    revocationReason: null,
+    publicKeyFingerprint: 'a'.repeat(64),
+    replacedByCredentialId: null,
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith('/api/v1/admin/me'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          user: {
+            id: 'operator-cred',
+            email: 'operator-cred@example.com',
+            role: 'SYSTEM_ADMIN',
+            status: 'ACTIVE',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      };
+    if (path.endsWith('/api/v1/admin/users'))
+      return { ok: true, status: 200, json: async () => ({ users: [] }) };
+    if (path.endsWith('/api/v1/admin/scopes'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ scopes: [scope] }),
+      };
+    if (
+      path.includes('/api/v1/admin/registrations') &&
+      !path.includes('/import') &&
+      !path.includes('/activation-token')
+    )
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          records: [
+            {
+              id: 'record-1',
+              unitNumber: 'A-1',
+              ownerName: 'Owner',
+              email: null,
+              phone: null,
+              votingWeight: '1.0000',
+              eligible: true,
+              status: 'ACTIVE',
+              version: 1,
+              scopeEligibilities: [],
+              activationTokens: [],
+              issuedCredentials: [credential],
+            },
+          ],
+        }),
+      };
+    if (path.endsWith('/api/v1/admin/credentials/cred-1/revoke')) {
+      credential = {
+        ...credential,
+        status: 'REVOKED',
+        revokedAt: new Date().toISOString(),
+        revocationReason: 'Lost device',
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ credential }),
+      };
+    }
+    if (path.endsWith('/api/v1/admin/credentials/cred-1/reissue')) {
+      credential = {
+        ...credential,
+        status: 'REVOKED',
+        revokedAt: new Date().toISOString(),
+        revocationReason: 'Replacement after loss',
+      };
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          credential,
+          activationToken: {
+            id: 'token-2',
+            registrationRecordId: 'record-1',
+            votingScopeId: 'scope-1',
+            tokenPrefixForSupport: 'ijklmnop',
+            status: 'ACTIVE',
+            expiresAt: scope.activationEndsAt,
+            generatedAt: new Date().toISOString(),
+            deliveryMethod: 'PRINT',
+            deliveredAt: null,
+            rawToken: 'replacement-activation-token',
+          },
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText(/Credential: Issued/)).toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', { name: 'Issued credential' }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Revocation reason'), {
+    target: { value: 'Lost device' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke credential' }));
+  expect(await screen.findByText('Credential revoked.')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/credentials/cred-1/revoke'),
+    expect.objectContaining({ method: 'POST' }),
+  );
+  fireEvent.change(screen.getByLabelText('Reissue reason'), {
+    target: { value: 'Replacement after loss' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Reissue credential' }));
+  expect(
+    await screen.findByText(
+      'Replacement activation QR generated. The previous credential is revoked.',
+    ),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByText('replacement-activation-token'),
+  ).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/credentials/cred-1/reissue'),
+    expect.objectContaining({ method: 'POST' }),
   );
 });
 

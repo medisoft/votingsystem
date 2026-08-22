@@ -9,8 +9,11 @@ import {
 } from '../src/activation-tokens.js';
 import {
   canonicalizeCredentialPayload,
+  canonicalizeRevocationList,
+  fingerprintPublicKey,
   generateClientNonce,
   type CredentialPayload,
+  type RevocationListPayload,
 } from '../src/credentials.js';
 import { verifyCanonical } from '../src/issuer-keys.js';
 import { generateTotpCode } from '../src/totp.js';
@@ -1877,6 +1880,249 @@ INVALID-ONLY,
       }),
     ).rejects.toThrow();
     expect(first.publicKey).toHaveLength(43);
+  });
+
+  it('revokes and reissues credentials without exposing voter identity', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      remoteAddress: '127.0.0.40',
+      payload: { email: 'admin@example.com', password: 'correct-password' },
+    });
+    const cookie = (
+      Array.isArray(login.headers['set-cookie'])
+        ? login.headers['set-cookie'][0]!
+        : login.headers['set-cookie']!
+    ).split(';')[0]!;
+    const auditorLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/auth/login',
+      remoteAddress: '127.0.0.41',
+      payload: { email: 'auditor@example.com', password: 'auditor-password' },
+    });
+    const auditorCookie = (
+      Array.isArray(auditorLogin.headers['set-cookie'])
+        ? auditorLogin.headers['set-cookie'][0]!
+        : auditorLogin.headers['set-cookie']!
+    ).split(';')[0]!;
+
+    const fixture = await openActivation('CRED-REV-1');
+    const publicKey = voterPublicKey();
+    const issued = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.42',
+      payload: {
+        activationToken: fixture.rawToken,
+        publicKey,
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(issued.statusCode).toBe(201);
+    const payload = issued.json().credential.payload as CredentialPayload;
+    const stored = await prisma.issuedCredential.findUniqueOrThrow({
+      where: { credentialId: payload.credentialId },
+    });
+    const fingerprint = fingerprintPublicKey(
+      Buffer.from(publicKey, 'base64url'),
+    );
+
+    const byId = await app.inject({
+      url: '/api/v1/public/credential-status/' + payload.credentialId,
+    });
+    expect(byId.statusCode).toBe(200);
+    expect(byId.json()).toMatchObject({
+      credentialId: payload.credentialId,
+      status: 'ACTIVE',
+      credentialVersion: 1,
+      replaced: false,
+      revokedAt: null,
+    });
+    expect(JSON.stringify(byId.json())).not.toContain(fixture.registration.id);
+    expect(JSON.stringify(byId.json())).not.toContain('Credential owner');
+    const byFingerprint = await app.inject({
+      url: '/api/v1/public/credential-status/' + fingerprint,
+    });
+    expect(byFingerprint.json().credentialId).toBe(payload.credentialId);
+
+    const emptyList = await app.inject({
+      url: '/api/v1/public/scopes/' + fixture.scope.id + '/revocations',
+    });
+    expect(emptyList.statusCode).toBe(200);
+    expect(emptyList.json().payload.revoked).toEqual([]);
+    expect(
+      verifyCanonical(
+        canonicalizeRevocationList(
+          emptyList.json().payload as RevocationListPayload,
+        ),
+        emptyList.json().signature,
+        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
+      ),
+    ).toBe(true);
+
+    const auditorRevoke = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/credentials/' + stored.id + '/revoke',
+      remoteAddress: '127.0.0.41',
+      headers: { cookie: auditorCookie },
+      payload: { reason: 'Auditor must not revoke' },
+    });
+    expect(auditorRevoke.statusCode).toBe(403);
+
+    const leftover = generateActivationToken();
+    await prisma.activationToken.create({
+      data: {
+        registrationRecordId: fixture.registration.id,
+        votingScopeId: fixture.scope.id,
+        tokenHash: leftover.tokenHash,
+        tokenPrefixForSupport: leftover.tokenPrefixForSupport,
+        generatedBy: (
+          await prisma.adminUser.findUniqueOrThrow({
+            where: { email: 'admin@example.com' },
+          })
+        ).id,
+        expiresAt: fixture.token.expiresAt,
+      },
+    });
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/credentials/' + stored.id + '/revoke',
+      remoteAddress: '127.0.0.40',
+      headers: { cookie },
+      payload: { reason: 'Lost device' },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json().credential).toMatchObject({
+      id: stored.id,
+      status: 'REVOKED',
+      revocationReason: 'Lost device',
+    });
+    expect(
+      await prisma.activationToken.findUniqueOrThrow({
+        where: { tokenHash: leftover.tokenHash },
+      }),
+    ).toMatchObject({ status: ActivationTokenStatus.REVOKED });
+
+    const afterRevoke = await app.inject({
+      url: '/api/v1/public/credential-status/' + payload.credentialId,
+    });
+    expect(afterRevoke.json()).toMatchObject({
+      status: 'REVOKED',
+      replaced: false,
+    });
+    const list = await app.inject({
+      url: '/api/v1/public/scopes/' + fixture.scope.id + '/revocations',
+    });
+    expect(list.json().payload.revoked).toEqual([
+      expect.objectContaining({
+        credentialId: payload.credentialId,
+        credentialVersion: 1,
+      }),
+    ]);
+    expect(JSON.stringify(list.json())).not.toContain('Lost device');
+    expect(JSON.stringify(list.json())).not.toContain(fixture.registration.id);
+
+    const listed = await app.inject({
+      url: '/api/v1/admin/registrations/' + fixture.registration.id,
+      headers: { cookie },
+    });
+    expect(listed.json().record.issuedCredentials[0]).toMatchObject({
+      id: stored.id,
+      status: 'REVOKED',
+      credentialVersion: 1,
+    });
+    expect(listed.json().record.issuedCredentials[0].publicKey).toBeUndefined();
+
+    const reissued = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/credentials/' + stored.id + '/reissue',
+      remoteAddress: '127.0.0.40',
+      headers: { cookie },
+      payload: { reason: 'Replacement after loss', deliveryMethod: 'PRINT' },
+    });
+    expect(reissued.statusCode).toBe(201);
+    const replacementToken = reissued.json().activationToken.rawToken as string;
+    expect(replacementToken).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(JSON.stringify(reissued.json().credential)).not.toContain(
+      replacementToken,
+    );
+
+    const replacementKey = voterPublicKey();
+    const replacement = await app.inject({
+      method: 'POST',
+      url: '/api/v1/public/activate',
+      remoteAddress: '127.0.0.43',
+      payload: {
+        activationToken: replacementToken,
+        publicKey: replacementKey,
+        publicKeyAlgorithm: 'Ed25519',
+        clientNonce: generateClientNonce(),
+      },
+    });
+    expect(replacement.statusCode).toBe(201);
+    expect(replacement.json().credential.payload.credentialVersion).toBe(2);
+    expect(replacement.json().credential.payload.credentialId).not.toBe(
+      payload.credentialId,
+    );
+    expect(
+      verifyCanonical(
+        canonicalizeCredentialPayload(
+          replacement.json().credential.payload as CredentialPayload,
+        ),
+        replacement.json().credential.signature,
+        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
+      ),
+    ).toBe(true);
+
+    const oldAfterReplace = await app.inject({
+      url: '/api/v1/public/credential-status/' + payload.credentialId,
+    });
+    expect(oldAfterReplace.json()).toMatchObject({
+      status: 'REVOKED',
+      replaced: true,
+    });
+    const linked = await prisma.issuedCredential.findUniqueOrThrow({
+      where: { credentialId: payload.credentialId },
+    });
+    const newest = await prisma.issuedCredential.findUniqueOrThrow({
+      where: {
+        credentialId: replacement.json().credential.payload.credentialId,
+      },
+    });
+    expect(linked.replacedByCredentialId).toBe(newest.id);
+
+    const alreadyReplaced = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/credentials/' + stored.id + '/reissue',
+      remoteAddress: '127.0.0.40',
+      headers: { cookie },
+      payload: { reason: 'Should not replace twice' },
+    });
+    expect(alreadyReplaced.statusCode).toBe(409);
+    expect(alreadyReplaced.json().code).toBe('CREDENTIAL_ALREADY_REPLACED');
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/credentials/00000000-0000-4000-8000-000000000001/revoke',
+      remoteAddress: '127.0.0.40',
+      headers: { cookie },
+      payload: { reason: 'Does not exist' },
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const audits = await prisma.auditEvent.findMany({
+      where: {
+        eventType: { in: ['CREDENTIAL_REVOKED', 'CREDENTIAL_REISSUED'] },
+        targetId: stored.id,
+      },
+    });
+    expect(audits.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(['CREDENTIAL_REVOKED', 'CREDENTIAL_REISSUED']),
+    );
+    expect(JSON.stringify(audits)).not.toContain(replacementToken);
+    expect(JSON.stringify(audits)).not.toContain(publicKey);
   });
 
   it('changes password and requires enrolled TOTP at login', async () => {

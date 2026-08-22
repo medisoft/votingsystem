@@ -93,6 +93,20 @@ interface Registration {
     votingScope: { id: string; name: string; status: ScopeStatus };
   }>;
   activationTokens: ActivationTokenSummary[];
+  issuedCredentials?: IssuedCredentialSummary[];
+}
+interface IssuedCredentialSummary {
+  id: string;
+  credentialId: string;
+  votingScopeId: string;
+  status: 'ACTIVE' | 'REVOKED';
+  credentialVersion: number;
+  issuedAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revocationReason?: string | null;
+  publicKeyFingerprint?: string;
+  replacedByCredentialId: string | null;
 }
 interface ActivationTokenSummary {
   id: string;
@@ -476,6 +490,57 @@ function Dashboard({ user }: { user: User }) {
     },
     onError: (error) =>
       setMessage(t('activationTokenActionFailed', { error: error.message })),
+  });
+  const revokeCredential = useMutation({
+    mutationFn: (input: { id: string; reason: string }) =>
+      api('/api/v1/admin/credentials/' + input.id + '/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ reason: input.reason }),
+      }),
+    onSuccess: () => {
+      setMessage(t('credentialRevoked'));
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('credentialActionFailed', { error: error.message })),
+  });
+  const reissueCredential = useMutation({
+    mutationFn: async (input: {
+      id: string;
+      reason: string;
+      deliveryMethod: string;
+    }) => {
+      const response = await api<{
+        activationToken: Omit<GeneratedActivationToken, 'qrDataUrl'>;
+      }>('/api/v1/admin/credentials/' + input.id + '/reissue', {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: input.reason,
+          deliveryMethod: input.deliveryMethod,
+        }),
+      });
+      const qrDataUrl = await QRCode.toDataURL(
+        response.activationToken.rawToken,
+        {
+          errorCorrectionLevel: 'M',
+          margin: 4,
+          width: 512,
+          type: 'image/png',
+        },
+      ).catch(() => null);
+      const activationToken = { ...response.activationToken, qrDataUrl };
+      setGeneratedActivationToken(activationToken);
+      setMessage(
+        activationToken.qrDataUrl
+          ? t('credentialReissued')
+          : t('activationQrGenerationFailed'),
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['registrations'] });
+    },
+    onError: (error) =>
+      setMessage(t('credentialActionFailed', { error: error.message })),
   });
   const revokeActivationToken = useMutation({
     mutationFn: (input: { id: string; reason: string }) =>
@@ -873,12 +938,45 @@ function Dashboard({ user }: { user: User }) {
         invalidatesGeneratedToken: { registrationRecordId: record.id },
       });
   };
-  const selectedTokenRecord = registrations.data?.records.find(
+  const selectedTokenRecord = registrations.data?.records?.find(
     (record) => record.id === tokenRecordId,
   );
   const selectedActiveToken = selectedTokenRecord?.activationTokens?.find(
     (token) => token.votingScopeId === tokenScopeId,
   );
+  const selectedCredential = selectedTokenRecord?.issuedCredentials?.find(
+    (credential) =>
+      credential.votingScopeId === tokenScopeId &&
+      !credential.replacedByCredentialId,
+  );
+  const revokeSelectedCredential = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const credentialId = String(data.get('issuedCredentialId'));
+    if (!credentialId) return;
+    revokeCredential.mutate({
+      id: credentialId,
+      reason: String(data.get('revocationReason')),
+    });
+  };
+  const reissueSelectedCredential = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const credentialId = String(data.get('issuedCredentialId'));
+    if (!credentialId) return;
+    reissueCredential.mutate({
+      id: credentialId,
+      reason: String(data.get('reissueReason')),
+      deliveryMethod: String(data.get('deliveryMethod')),
+    });
+  };
+  const recordCredentialStatus = (record: Registration) => {
+    const credentials = record.issuedCredentials ?? [];
+    if (credentials.some((credential) => credential.status === 'ACTIVE'))
+      return t('credentialStatusIssued');
+    if (credentials.length) return t('credentialStatusRevoked');
+    return t('credentialStatusNone');
+  };
   const importPreviewStart = importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE;
   const importPreviewRows =
     importPreview?.rows.slice(
@@ -1046,7 +1144,7 @@ function Dashboard({ user }: { user: User }) {
           </label>
         )}
         <ul>
-          {registrations.data?.records.map((record) => (
+          {registrations.data?.records?.map((record) => (
             <li key={record.id}>
               <span>
                 <strong>{record.unitNumber ?? t('protectedRecord')}</strong>
@@ -1066,6 +1164,8 @@ function Dashboard({ user }: { user: User }) {
                       `${item.votingScope.name}: ${item.eligible ? t('yes') : t('no')} (${item.votingWeight})`,
                   )
                   .join(', ') || t('noScopeEligibility')}
+                <br />
+                {t('credentialStatus')}: {recordCredentialStatus(record)}
                 {user.role !== 'AUDITOR' && (
                   <>
                     <br />
@@ -1376,7 +1476,7 @@ function Dashboard({ user }: { user: User }) {
               <label>
                 {t('record')}
                 <select name="recordId" required>
-                  {registrations.data?.records.map((record) => (
+                  {registrations.data?.records?.map((record) => (
                     <option key={record.id} value={record.id}>
                       {record.unitNumber} — {record.ownerName}
                     </option>
@@ -1426,7 +1526,7 @@ function Dashboard({ user }: { user: User }) {
                   }}
                   required
                 >
-                  {registrations.data?.records.map((record) => (
+                  {registrations.data?.records?.map((record) => (
                     <option key={record.id} value={record.id}>
                       {record.unitNumber} — {record.ownerName}
                     </option>
@@ -1469,6 +1569,72 @@ function Dashboard({ user }: { user: User }) {
                     : t('generateActivationToken')}
               </button>
             </form>
+            {selectedCredential && (
+              <div className="activation-card">
+                <h3>{t('issuedCredential')}</h3>
+                <p>
+                  {t('credentialVersionLabel', {
+                    version: selectedCredential.credentialVersion,
+                  })}
+                  <br />
+                  {t('credentialStatus')}:{' '}
+                  {selectedCredential.status === 'ACTIVE'
+                    ? t('credentialStatusIssued')
+                    : t('credentialStatusRevoked')}
+                  <br />
+                  {t('credentialExpires', {
+                    date: new Date(selectedCredential.expiresAt).toLocaleString(
+                      locale,
+                    ),
+                  })}
+                </p>
+                {selectedCredential.status === 'ACTIVE' && (
+                  <form onSubmit={revokeSelectedCredential}>
+                    <input
+                      name="issuedCredentialId"
+                      type="hidden"
+                      value={selectedCredential.id}
+                    />
+                    <label>
+                      {t('revokeReason')}
+                      <input name="revocationReason" minLength={3} required />
+                    </label>
+                    <button
+                      className="secondary"
+                      disabled={revokeCredential.isPending}
+                    >
+                      {revokeCredential.isPending
+                        ? t('revokingCredential')
+                        : t('revokeCredential')}
+                    </button>
+                  </form>
+                )}
+                <form onSubmit={reissueSelectedCredential}>
+                  <input
+                    name="issuedCredentialId"
+                    type="hidden"
+                    value={selectedCredential.id}
+                  />
+                  <label>
+                    {t('reissueReason')}
+                    <input name="reissueReason" minLength={3} required />
+                  </label>
+                  <label>
+                    {t('deliveryMethod')}
+                    <select name="deliveryMethod" defaultValue="PRINT" required>
+                      <option value="PRINT">{t('deliveryPrint')}</option>
+                      <option value="SECURE_EMAIL">{t('deliveryEmail')}</option>
+                      <option value="MANUAL">{t('deliveryManual')}</option>
+                    </select>
+                  </label>
+                  <button disabled={reissueCredential.isPending}>
+                    {reissueCredential.isPending
+                      ? t('reissuingCredential')
+                      : t('reissueCredential')}
+                  </button>
+                </form>
+              </div>
+            )}
             {selectedActiveToken && (
               <div className="activation-card">
                 <h3>{t('activeActivationToken')}</h3>
@@ -1851,7 +2017,7 @@ function Dashboard({ user }: { user: User }) {
         )}
         <h2>{t('auditEvents')}</h2>
         <ul>
-          {recentAuditEvents.data?.events.length
+          {recentAuditEvents.data?.events?.length
             ? recentAuditEvents.data.events.map((event) => (
                 <li key={event.id}>
                   {new Date(event.occurredAt).toLocaleString(locale)} ·{' '}

@@ -99,3 +99,82 @@ export function isValidClientNonce(encoded: string): boolean {
 export function generateClientNonce(): string {
   return randomBytes(CLIENT_NONCE_MIN_BYTES).toString('base64url');
 }
+
+export interface RevokedCredentialEntry {
+  credentialId: string;
+  credentialVersion: number;
+  revokedAt: string;
+}
+
+export interface RevocationListPayload {
+  schemaVersion: number;
+  scopeId: string;
+  generatedAt: string;
+  issuer: string;
+  revoked: RevokedCredentialEntry[];
+}
+
+/**
+ * Serializes a revocation list with a fixed field order for Ed25519 signing.
+ *
+ * @param payload - Public revoked-credential identifiers for one voting scope.
+ * @returns Canonical JSON used as the signed message.
+ */
+export function canonicalizeRevocationList(
+  payload: RevocationListPayload,
+): string {
+  return JSON.stringify({
+    schemaVersion: payload.schemaVersion,
+    scopeId: payload.scopeId,
+    generatedAt: payload.generatedAt,
+    issuer: payload.issuer,
+    revoked: payload.revoked.map((entry) => ({
+      credentialId: entry.credentialId,
+      credentialVersion: entry.credentialVersion,
+      revokedAt: entry.revokedAt,
+    })),
+  });
+}
+
+/**
+ * Public credential validity for ballot services, with no registration identity.
+ */
+export type PublicCredentialStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+
+/**
+ * Maps a stored credential to a public status response.
+ *
+ * @param record - Issued credential fields needed for validity.
+ * @param now - Instant used to treat unrevoked expired credentials as expired.
+ * @returns Status fields that do not include voter identity.
+ */
+export function publicCredentialStatus(
+  record: {
+    credentialId: string;
+    credentialVersion: number;
+    status: 'ACTIVE' | 'REVOKED';
+    expiresAt: Date;
+    revokedAt: Date | null;
+    replacedByCredentialId: string | null;
+  },
+  now: Date,
+): {
+  credentialId: string;
+  status: PublicCredentialStatus;
+  credentialVersion: number;
+  expiresAt: string;
+  revokedAt: string | null;
+  replaced: boolean;
+} {
+  const expired = record.expiresAt <= now;
+  const status: PublicCredentialStatus =
+    record.status === 'REVOKED' ? 'REVOKED' : expired ? 'EXPIRED' : 'ACTIVE';
+  return {
+    credentialId: record.credentialId,
+    status,
+    credentialVersion: record.credentialVersion,
+    expiresAt: record.expiresAt.toISOString(),
+    revokedAt: record.revokedAt?.toISOString() ?? null,
+    replaced: Boolean(record.replacedByCredentialId),
+  };
+}

@@ -215,6 +215,7 @@ model IssuedCredential {
   replacedBy             IssuedCredential?       @relation("CredentialReplacement", fields: [replacedByCredentialId], references: [id], onDelete: SetNull)
   replacements           IssuedCredential[]      @relation("CredentialReplacement")
 
+  @@unique([registrationRecordId, votingScopeId, credentialVersion], map: "IssuedCredential_record_scope_version_key")
   @@index([votingScopeId, status])
   @@index([registrationRecordId, status])
   @@index([publicKeyFingerprint])
