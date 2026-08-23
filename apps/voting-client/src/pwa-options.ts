@@ -34,5 +34,6 @@ export const votingClientPwaOptions = {
   workbox: {
     globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
     navigateFallback: 'index.html',
+    navigateFallbackDenylist: [/^\/api\//],
   },
 };

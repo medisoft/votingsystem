@@ -33,6 +33,9 @@ describe('internationalization', () => {
     expect(createTranslator('en')('scanSuccess', { prefix: 'Aa1_-Aa1' })).toBe(
       'Activation code received (Aa1_-Aa1…).',
     );
+    expect(
+      createTranslator('es')('activationExpires', { date: '31 de agosto' }),
+    ).toBe('Válida hasta 31 de agosto.');
   });
 
   it('prefers a stored locale over browser languages', () => {

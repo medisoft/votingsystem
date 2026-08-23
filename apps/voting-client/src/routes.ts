@@ -1,4 +1,4 @@
-/** Client routes for Stage 1–2 navigation. */
+/** Client routes for welcome and credential activation. */
 export const clientRoutes = {
   welcome: '/',
   activate: '/activate',

@@ -126,6 +126,80 @@ export const messages = {
     en: 'Scan again',
     es: 'Escanear de nuevo',
   },
+  activateOnDevice: {
+    description: 'Starts local key generation and registration with the token.',
+    en: 'Activate on this device',
+    es: 'Activar en este dispositivo',
+  },
+  activating: {
+    description:
+      'Status shown while keys are generated and the token is redeemed.',
+    en: 'Creating your voting keys and contacting the registration service…',
+    es: 'Creando sus claves de votación y contactando el servicio de registro…',
+  },
+  activationSuccess: {
+    description:
+      'Confirms that the anonymous credential is stored on the device.',
+    en: 'Your anonymous voting credential is stored on this device. The private key never left this device.',
+    es: 'Su credencial de votación anónima está guardada en este dispositivo. La clave privada nunca salió de este dispositivo.',
+  },
+  activationExpires: {
+    description: 'Shows the credential expiration from issuer public metadata.',
+    en: 'Valid until {date}.',
+    es: 'Válida hasta {date}.',
+  },
+  activationTokenNotFound: {
+    description:
+      'The scanned token is not recognized by the registration service.',
+    en: 'This activation code was not recognized. Check the QR and try again.',
+    es: 'Este código de activación no fue reconocido. Revise el QR e inténtelo de nuevo.',
+  },
+  activationTokenExpired: {
+    description: 'The scanned token has expired.',
+    en: 'This activation code has expired. Ask the administrator for a new one.',
+    es: 'Este código de activación ha caducado. Pida uno nuevo al administrador.',
+  },
+  activationTokenRevoked: {
+    description: 'The scanned token was revoked.',
+    en: 'This activation code was revoked. Ask the administrator for a new one.',
+    es: 'Este código de activación fue revocado. Pida uno nuevo al administrador.',
+  },
+  activationTokenUsed: {
+    description: 'The scanned token was already redeemed.',
+    en: 'This activation code was already used.',
+    es: 'Este código de activación ya fue utilizado.',
+  },
+  activationNotEligible: {
+    description: 'The registration is not eligible for a new credential.',
+    en: 'This registration cannot activate a voting credential.',
+    es: 'Este registro no puede activar una credencial de votación.',
+  },
+  activationWindow: {
+    description: 'The voting scope is outside its activation window.',
+    en: 'Credential activation is not open for this vote.',
+    es: 'La activación de credenciales no está abierta para esta votación.',
+  },
+  activationUnblindFailed: {
+    description:
+      'Server issued a credential the device could not finish locally.',
+    en: 'The registration service accepted the code, but this device could not finish storing the credential. Do not scan the same code again. Ask the administrator for help.',
+    es: 'El servicio de registro aceptó el código, pero este dispositivo no pudo terminar de guardar la credencial. No vuelva a escanear el mismo código. Pida ayuda al administrador.',
+  },
+  activationStorageFailed: {
+    description: 'IndexedDB refused to store the credential.',
+    en: 'The credential could not be saved on this device. Try again without clearing site data.',
+    es: 'No se pudo guardar la credencial en este dispositivo. Inténtelo de nuevo sin borrar los datos del sitio.',
+  },
+  activationNetwork: {
+    description: 'The registration service could not be reached.',
+    en: 'Could not reach the registration service. Check your connection and try again.',
+    es: 'No se pudo contactar el servicio de registro. Revise la conexión e inténtelo de nuevo.',
+  },
+  activationFailed: {
+    description: 'Generic activation failure.',
+    en: 'Credential activation failed. Try again.',
+    es: 'La activación de la credencial falló. Inténtelo de nuevo.',
+  },
   backToWelcome: {
     description: 'Link back from the activation screen to the welcome screen.',
     en: 'Back to welcome',

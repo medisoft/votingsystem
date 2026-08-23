@@ -5,7 +5,7 @@ import { clientRoutes } from './routes';
 import { Welcome } from './Welcome';
 
 /**
- * Owner client routes: welcome, QR activation, and a catch-all.
+ * Owner client routes: welcome, credential activation, and a catch-all.
  */
 function AppRoutes() {
   return (

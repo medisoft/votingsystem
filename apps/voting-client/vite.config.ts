@@ -22,6 +22,21 @@ export default defineConfig({
   server: {
     port: 5174,
     allowedHosts: ['.local'],
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    port: 4174,
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   test: { environment: 'jsdom', setupFiles: './src/test/setup.ts' },
 });

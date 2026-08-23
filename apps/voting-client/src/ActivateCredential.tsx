@@ -7,7 +7,13 @@ import {
   useState,
 } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import {
+  ActivationError,
+  activationErrorMessageKey,
+  redeemActivation,
+} from './activate-credential';
 import { ClientShell } from './ClientShell';
+import { getCredentialVault, toCredentialSummary } from './credential-vault';
 import { useI18n } from './i18n/I18nProvider';
 import { activationTokenPrefix, parseActivationQr } from './parseActivationQr';
 import { detectQrFromSource } from './qr-detect';
@@ -16,20 +22,35 @@ import { useClientStore } from './store';
 import { useQrScanner } from './useQrScanner';
 
 /**
- * Stage 2 activation screen: camera QR scan, photo of a QR, or pasted token.
- * Key generation and the registration API are later stages.
+ * Activation screen: scan a QR, generate a local key pair, redeem the token
+ * with a blinded commitment, and store the anonymous credential on device.
  */
 export function ActivateCredential() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [scanError, setScanError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [activationError, setActivationError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const activationToken = useClientStore((state) => state.activationToken);
   const setActivationToken = useClientStore(
     (state) => state.setActivationToken,
   );
+  const credential = useClientStore((state) => state.credential);
+  const setCredential = useClientStore((state) => state.setCredential);
   const { videoRef, status, lastRaw, start, stop, acceptRaw, clearLast } =
     useQrScanner();
+
+  useEffect(() => {
+    void getCredentialVault()
+      .get()
+      .then((stored) => {
+        if (!stored) return;
+        setCredential(toCredentialSummary(stored));
+        setActivationToken(null);
+      })
+      .catch(() => undefined);
+  }, [setActivationToken, setCredential]);
 
   useEffect(() => {
     const fromQuery = searchParams.get('token');
@@ -93,22 +114,71 @@ export function ActivateCredential() {
   const scanAgain = useCallback(() => {
     setActivationToken(null);
     setScanError(false);
+    setActivationError(null);
     clearLast();
   }, [setActivationToken, clearLast]);
 
+  const onActivate = useCallback(async () => {
+    if (!activationToken || busy) return;
+    setBusy(true);
+    setActivationError(null);
+    try {
+      const stored = await redeemActivation(activationToken);
+      setCredential(toCredentialSummary(stored));
+      setActivationToken(null);
+    } catch (error) {
+      const code =
+        error instanceof ActivationError ? error.code : 'REQUEST_FAILED';
+      setActivationError(code);
+    } finally {
+      setBusy(false);
+    }
+  }, [activationToken, busy, setActivationToken, setCredential]);
+
   const showViewport = status === 'starting' || status === 'scanning';
+  const expiresLabel = credential
+    ? new Intl.DateTimeFormat(locale === 'en' ? 'en' : 'es', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+      }).format(new Date(credential.expiresAt))
+    : '';
 
   return (
     <ClientShell title={t('activateTitle')}>
-      {activationToken ? (
+      {credential ? (
+        <>
+          <p className="success" role="status">
+            {t('activationSuccess')}
+          </p>
+          <p>{t('activationExpires', { date: expiresLabel })}</p>
+        </>
+      ) : activationToken ? (
         <>
           <p className="success" role="status">
             {t('scanSuccess', {
               prefix: activationTokenPrefix(activationToken),
             })}
           </p>
+          {activationError && (
+            <p className="error" role="alert">
+              {t(activationErrorMessageKey(activationError))}
+            </p>
+          )}
+          {busy && <p role="status">{t('activating')}</p>}
           <div className="actions">
-            <button type="button" className="secondary" onClick={scanAgain}>
+            <button
+              type="button"
+              onClick={() => void onActivate()}
+              disabled={busy}
+            >
+              {t('activateOnDevice')}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={scanAgain}
+              disabled={busy}
+            >
               {t('scanAgain')}
             </button>
           </div>

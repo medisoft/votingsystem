@@ -3,6 +3,7 @@ import { useClientStore } from './store';
 
 afterEach(() => {
   useClientStore.getState().setActivationToken(null);
+  useClientStore.getState().setCredential(null);
 });
 
 it('holds an activation token only in memory', () => {
