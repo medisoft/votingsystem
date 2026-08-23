@@ -107,12 +107,8 @@ export async function redeemBlindActivation(
   let signature: Uint8Array | null = null;
   let verified = false;
   const envelope = issued.json().credential as
-    | { publicMetadata: PublicMetadata; blindedSignature: string }
-    | undefined;
-  if (
-    (issued.statusCode === 201 || issued.statusCode === 200) &&
-    envelope
-  ) {
+    { publicMetadata: PublicMetadata; blindedSignature: string } | undefined;
+  if ((issued.statusCode === 201 || issued.statusCode === 200) && envelope) {
     signature = await unblindSignature(
       issuerPublicKey,
       blinded.preparedMsg,
