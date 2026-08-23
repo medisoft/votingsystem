@@ -1,7 +1,18 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import type { FastifyInstance, HTTPMethods } from 'fastify';
+
+/** Browser path for the interactive OpenAPI explorer. */
+export const OPENAPI_UI_PREFIX = '/documentation';
+
+/**
+ * CSP for the Swagger UI HTML/JS/CSS. Helmet's API policy is `default-src
+ * 'none'` and would block this page.
+ */
+export const OPENAPI_UI_CSP =
+  "default-src 'self';base-uri 'self';font-src 'self' data:;img-src 'self' data:;object-src 'none';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';connect-src 'self';frame-ancestors 'none';form-action 'self'";
 
 const SKIPPED_METHODS = new Set<HTTPMethods | 'HEAD'>(['HEAD', 'OPTIONS']);
 
@@ -44,6 +55,17 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
       path: OPENAPI_SPEC_PATH,
       baseDir: dirname(OPENAPI_SPEC_PATH),
     },
+  });
+  await app.register(swaggerUi, {
+    routePrefix: OPENAPI_UI_PREFIX,
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+      persistAuthorization: false,
+      tryItOutEnabled: true,
+    },
+    staticCSP: true,
+    transformStaticCSP: () => OPENAPI_UI_CSP,
   });
   app.get('/api/v1/openapi.json', async () => app.swagger());
 }

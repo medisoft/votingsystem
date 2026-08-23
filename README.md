@@ -238,6 +238,10 @@ The API uses @fastify/swagger 9.8.1 in static mode instead of a custom YAML pars
 
 A contract test walks the live `/api/v1` route table (excluding HEAD/OPTIONS) and fails if a path or method is missing from the YAML. Example payloads omit passwords, TOTP secrets, and raw activation tokens.
 
+Interactive Swagger UI is at http://localhost:3001/documentation (also `/documentation/` after the usual redirect). It loads the same committed YAML. The API uses @fastify/swagger-ui 6.1.1, the official Fastify 5 UI plugin (MIT, `@fastify/static` 10). At selection time, `npm audit --omit=dev` on the API workspace reported no known production vulnerabilities for this package. Maintenance and license evidence: https://www.npmjs.com/package/@fastify/swagger-ui and https://github.com/fastify/fastify-swagger-ui.
+
+Helmet keeps `default-src 'none'` on JSON/API routes. The documentation pages use a looser CSP that allows Swagger UI scripts and styles. Try-it-out calls to `/api/v1/admin` from this UI run on the API origin and are still subject to CSRF origin checks (`ADMIN_ORIGIN`).
+
 ## Stage 13 administrator account editing
 
 System administrators can `PATCH /api/v1/admin/users/:id` to change `role` or `status`, or set `unlock: true` to clear lockout counters. Deactivating an account revokes its sessions. The last remaining ACTIVE `SYSTEM_ADMIN` cannot be deactivated or demoted (`LAST_SYSTEM_ADMIN`). Operators and auditors receive 403. Updates are audited as `ADMIN_USER_UPDATED` without passwords or TOTP material.
