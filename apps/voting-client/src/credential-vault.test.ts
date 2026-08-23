@@ -42,5 +42,6 @@ it('omits the private key from the UI summary', () => {
     expiresAt: '2026-08-31T23:59:59.000Z',
     weight: '1.0000',
     protocol: 'RSAPBSSA-SHA384-PSS-Randomized',
+    scopeId: '22222222-2222-4222-8222-222222222222',
   });
 });

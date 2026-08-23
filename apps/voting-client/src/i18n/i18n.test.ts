@@ -36,6 +36,8 @@ describe('internationalization', () => {
     expect(
       createTranslator('es')('activationExpires', { date: '31 de agosto' }),
     ).toBe('Válida hasta 31 de agosto.');
+    expect(createTranslator('en')('viewProposals')).toBe('View proposals');
+    expect(createTranslator('es')('homeTitle')).toBe('Inicio');
   });
 
   it('prefers a stored locale over browser languages', () => {

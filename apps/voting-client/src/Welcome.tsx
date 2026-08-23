@@ -1,7 +1,8 @@
-import { useNavigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { ClientShell } from './ClientShell';
 import { useI18n } from './i18n/I18nProvider';
 import { clientRoutes } from './routes';
+import { useHydratedCredential } from './useHydratedCredential';
 import { useInstallPrompt } from './useInstallPrompt';
 
 /**
@@ -10,7 +11,11 @@ import { useInstallPrompt } from './useInstallPrompt';
 export function Welcome() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { credential } = useHydratedCredential();
   const { canInstall, install, showIosHint } = useInstallPrompt();
+  if (credential) {
+    return <Navigate to={clientRoutes.home} replace />;
+  }
   return (
     <ClientShell title={t('projectName')}>
       <p>{t('welcomeExplanation')}</p>

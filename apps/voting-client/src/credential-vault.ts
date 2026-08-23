@@ -21,6 +21,7 @@ export interface CredentialSummary {
   expiresAt: string;
   weight: string;
   protocol: string;
+  scopeId: string;
 }
 
 export interface CredentialVault {
@@ -137,5 +138,6 @@ export function toCredentialSummary(
     expiresAt: credential.publicMetadata.expiresAt,
     weight: credential.publicMetadata.weight,
     protocol: credential.publicMetadata.protocol,
+    scopeId: credential.publicMetadata.scopeId,
   };
 }

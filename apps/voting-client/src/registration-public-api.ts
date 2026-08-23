@@ -110,6 +110,32 @@ export async function getActivationContext(
   );
 }
 
+export interface ScopeStatusResponse {
+  scopeId: string;
+  status: string;
+  activationStartsAt: string;
+  activationEndsAt: string;
+  startsAt: string;
+  endsAt: string;
+  credentialExpiresAt: string;
+  acceptsActivation: boolean;
+  issuerKeyVersion: string;
+}
+
+/**
+ * Loads public voting-scope windows. No owner or credential identifiers.
+ *
+ * @param scopeId - Scope bound into the stored credential's public metadata.
+ * @returns Status, activation/voting windows, and `acceptsActivation`.
+ */
+export async function getScopeStatus(
+  scopeId: string,
+): Promise<ScopeStatusResponse> {
+  return publicApi<ScopeStatusResponse>(
+    `/api/v1/public/scopes/${scopeId}/status`,
+  );
+}
+
 /**
  * Submits a blinded commitment. The voter public key is not in this body.
  *

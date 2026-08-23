@@ -4,7 +4,12 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ActivationError, redeemActivation } from './activate-credential';
 import { App } from './App';
-import { createMemoryVault, setCredentialVault } from './credential-vault';
+import {
+  createMemoryVault,
+  setCredentialVault,
+  toCredentialSummary,
+  type StoredCredential,
+} from './credential-vault';
 import { LOCALE_STORAGE_KEY } from './i18n';
 import type { InstallPromptEvent } from './install';
 import { resetNativeQrDetectorCache } from './qr-detect';
@@ -21,6 +26,57 @@ vi.mock('./activate-credential', async (importOriginal) => {
 const redeemActivationMock = vi.mocked(redeemActivation);
 
 const SAMPLE_TOKEN = 'Aa1_-'.repeat(8) + 'xyz';
+const SCOPE_ID = '22222222-2222-4222-8222-222222222222';
+
+function sampleStoredCredential(): StoredCredential {
+  return {
+    privateKey: {} as CryptoKey,
+    publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    publicKeyAlgorithm: 'Ed25519',
+    credentialId: '11111111-1111-4111-8111-111111111111',
+    publicMetadata: {
+      schemaVersion: 2,
+      protocol: 'RSAPBSSA-SHA384-PSS-Randomized',
+      scopeId: SCOPE_ID,
+      weight: '1.0000',
+      credentialVersion: 1,
+      expiresAt: '2026-12-31T23:59:59.000Z',
+      issuer: 'condominium-registration-service',
+      keyVersion: 'test-2026-01',
+    },
+    preparedMessage: 'prepared',
+    signature: 'signature',
+    storedAt: '2026-08-23T00:00:00.000Z',
+  };
+}
+
+async function seedStoredCredential() {
+  const stored = sampleStoredCredential();
+  const vault = createMemoryVault();
+  await vault.put(stored);
+  setCredentialVault(vault);
+  useClientStore.getState().setCredential(toCredentialSummary(stored));
+}
+
+function stubScopeStatus(status = 'VOTING_ACTIVE') {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        scopeId: SCOPE_ID,
+        status,
+        activationStartsAt: '2026-08-01T00:00:00.000Z',
+        activationEndsAt: '2026-08-20T00:00:00.000Z',
+        startsAt: '2026-08-01T00:00:00.000Z',
+        endsAt: '2026-12-31T00:00:00.000Z',
+        credentialExpiresAt: '2026-12-31T23:59:59.000Z',
+        acceptsActivation: false,
+        issuerKeyVersion: 'test-2026-01',
+      }),
+    }),
+  );
+}
 
 function renderApp(path = '/') {
   return render(
@@ -208,6 +264,11 @@ it('redeems the token and stores the credential on this device', async () => {
     '2026-08-31T23:59:59.000Z',
   );
   expect(redeemActivationMock).toHaveBeenCalledWith(SAMPLE_TOKEN);
+  stubScopeStatus();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue to home' }));
+  expect(
+    await screen.findByRole('heading', { name: 'Home' }),
+  ).toBeInTheDocument();
 });
 
 it('shows an expired-token error from the registration service', async () => {
@@ -275,6 +336,72 @@ it('shows iOS install instructions when the browser has no prompt', () => {
   expect(
     screen.getByText(/tap Share and then Add to Home Screen/),
   ).toBeInTheDocument();
+});
+
+it('opens home after a stored credential and lists status fields', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  await seedStoredCredential();
+  stubScopeStatus();
+  renderApp('/home');
+  expect(await screen.findByText('Voting is open')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument();
+  expect(screen.getByText('Current voting status')).toBeInTheDocument();
+  expect(screen.getByText('Active proposals')).toBeInTheDocument();
+  expect(screen.getByText('0')).toBeInTheDocument();
+  expect(screen.getByText('Last synchronization')).toBeInTheDocument();
+  expect(screen.getByText('Connection status')).toBeInTheDocument();
+  expect(screen.getByText('Online')).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'View proposals' }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'My votes' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+});
+
+it('sends a stored credential from welcome to home', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  await seedStoredCredential();
+  stubScopeStatus();
+  renderApp();
+  expect(
+    await screen.findByRole('heading', { name: 'Home' }),
+  ).toBeInTheDocument();
+});
+
+it('sends home back to welcome when no credential is stored', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  renderApp('/home');
+  expect(
+    await screen.findByRole('button', { name: 'Activate credential' }),
+  ).toBeInTheDocument();
+});
+
+it('opens the proposal placeholder from home', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  await seedStoredCredential();
+  stubScopeStatus();
+  renderApp('/home');
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'View proposals' }),
+  );
+  expect(
+    screen.getByText('The list of proposals will appear here.'),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+  expect(
+    await screen.findByRole('heading', { name: 'Home' }),
+  ).toBeInTheDocument();
+});
+
+it('reports offline connection on the home screen', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  await seedStoredCredential();
+  vi.stubGlobal('navigator', { ...navigator, onLine: false });
+  renderApp('/home');
+  expect(await screen.findByText('Offline')).toBeInTheDocument();
+  expect(screen.getByText('Unknown')).toBeInTheDocument();
+  expect(screen.getByText('Unavailable')).toBeInTheDocument();
+  expect(screen.getByText('Not yet synchronized')).toBeInTheDocument();
 });
 
 it('hides install chrome when already running standalone', () => {

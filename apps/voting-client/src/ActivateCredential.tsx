@@ -6,19 +6,20 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import {
   ActivationError,
   activationErrorMessageKey,
   redeemActivation,
 } from './activate-credential';
 import { ClientShell } from './ClientShell';
-import { getCredentialVault, toCredentialSummary } from './credential-vault';
+import { toCredentialSummary } from './credential-vault';
 import { useI18n } from './i18n/I18nProvider';
 import { activationTokenPrefix, parseActivationQr } from './parseActivationQr';
 import { detectQrFromSource } from './qr-detect';
 import { clientRoutes } from './routes';
 import { useClientStore } from './store';
+import { useHydratedCredential } from './useHydratedCredential';
 import { useQrScanner } from './useQrScanner';
 
 /**
@@ -27,6 +28,7 @@ import { useQrScanner } from './useQrScanner';
  */
 export function ActivateCredential() {
   const { locale, t } = useI18n();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [scanError, setScanError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,21 +38,14 @@ export function ActivateCredential() {
   const setActivationToken = useClientStore(
     (state) => state.setActivationToken,
   );
-  const credential = useClientStore((state) => state.credential);
+  const { credential } = useHydratedCredential();
   const setCredential = useClientStore((state) => state.setCredential);
   const { videoRef, status, lastRaw, start, stop, acceptRaw, clearLast } =
     useQrScanner();
 
   useEffect(() => {
-    void getCredentialVault()
-      .get()
-      .then((stored) => {
-        if (!stored) return;
-        setCredential(toCredentialSummary(stored));
-        setActivationToken(null);
-      })
-      .catch(() => undefined);
-  }, [setActivationToken, setCredential]);
+    if (credential) setActivationToken(null);
+  }, [credential, setActivationToken]);
 
   useEffect(() => {
     const fromQuery = searchParams.get('token');
@@ -151,6 +146,11 @@ export function ActivateCredential() {
             {t('activationSuccess')}
           </p>
           <p>{t('activationExpires', { date: expiresLabel })}</p>
+          <div className="actions">
+            <button type="button" onClick={() => navigate(clientRoutes.home)}>
+              {t('goToHome')}
+            </button>
+          </div>
         </>
       ) : activationToken ? (
         <>
@@ -252,9 +252,11 @@ export function ActivateCredential() {
           </form>
         </>
       )}
-      <p>
-        <Link to={clientRoutes.welcome}>{t('backToWelcome')}</Link>
-      </p>
+      {!credential && (
+        <p>
+          <Link to={clientRoutes.welcome}>{t('backToWelcome')}</Link>
+        </p>
+      )}
     </ClientShell>
   );
 }

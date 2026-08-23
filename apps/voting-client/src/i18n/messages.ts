@@ -205,6 +205,166 @@ export const messages = {
     en: 'Back to welcome',
     es: 'Volver al inicio',
   },
+  goToHome: {
+    description: 'Continues from successful activation to the home screen.',
+    en: 'Continue to home',
+    es: 'Ir al inicio',
+  },
+  homeTitle: {
+    description: 'Heading on the owner home screen.',
+    en: 'Home',
+    es: 'Inicio',
+  },
+  homeLoading: {
+    description: 'Shown while the stored credential or home snapshot loads.',
+    en: 'Loading…',
+    es: 'Cargando…',
+  },
+  homeVotingStatus: {
+    description: 'Label for the current voting status on the home screen.',
+    en: 'Current voting status',
+    es: 'Estado actual de la votación',
+  },
+  homeActiveProposals: {
+    description: 'Label for the number of active proposals.',
+    en: 'Active proposals',
+    es: 'Propuestas activas',
+  },
+  homeLastSync: {
+    description: 'Label for the last successful synchronization time.',
+    en: 'Last synchronization',
+    es: 'Última sincronización',
+  },
+  homeConnection: {
+    description: 'Label for online or offline connection status.',
+    en: 'Connection status',
+    es: 'Estado de la conexión',
+  },
+  votingStatusOpen: {
+    description: 'Voting window is currently open.',
+    en: 'Voting is open',
+    es: 'La votación está abierta',
+  },
+  votingStatusNotStarted: {
+    description: 'The voting window has not started yet.',
+    en: 'Voting has not started',
+    es: 'La votación aún no ha comenzado',
+  },
+  votingStatusClosed: {
+    description: 'The voting window has ended.',
+    en: 'Voting is closed',
+    es: 'La votación está cerrada',
+  },
+  votingStatusActivationOpen: {
+    description: 'Credential activation is open and voting has not started.',
+    en: 'Credential activation is open',
+    es: 'La activación de credenciales está abierta',
+  },
+  votingStatusNotOpen: {
+    description: 'The scope is not in a voting phase yet.',
+    en: 'Voting is not open yet',
+    es: 'La votación aún no está abierta',
+  },
+  votingStatusArchived: {
+    description: 'The voting scope has been archived.',
+    en: 'This vote has been archived',
+    es: 'Esta votación fue archivada',
+  },
+  votingStatusCredentialExpired: {
+    description: 'The stored credential has expired.',
+    en: 'Your credential has expired',
+    es: 'Su credencial ha caducado',
+  },
+  votingStatusUnknown: {
+    description: 'Voting status is not available without a successful sync.',
+    en: 'Unknown',
+    es: 'Desconocido',
+  },
+  activeProposalCount: {
+    description: 'Numeric count of active proposals.',
+    en: '{count}',
+    es: '{count}',
+  },
+  activeProposalsUnknown: {
+    description: 'Shown when the active-proposal count cannot be loaded.',
+    en: 'Unavailable',
+    es: 'No disponible',
+  },
+  lastSyncAt: {
+    description: 'Formatted time of the last successful home sync.',
+    en: '{date}',
+    es: '{date}',
+  },
+  lastSyncNever: {
+    description: 'Shown when home has not synchronized yet.',
+    en: 'Not yet synchronized',
+    es: 'Aún no sincronizado',
+  },
+  connectionOnline: {
+    description: 'The device reached the registration service.',
+    en: 'Online',
+    es: 'En línea',
+  },
+  connectionOffline: {
+    description: 'The browser reports no network.',
+    en: 'Offline',
+    es: 'Sin conexión',
+  },
+  connectionUnreachable: {
+    description: 'The browser is online but the service could not be reached.',
+    en: 'Service unreachable',
+    es: 'Servicio no disponible',
+  },
+  viewProposals: {
+    description: 'Home action that opens the proposal list.',
+    en: 'View proposals',
+    es: 'Ver propuestas',
+  },
+  myVotes: {
+    description: 'Home action that opens the owner vote history.',
+    en: 'My votes',
+    es: 'Mis votos',
+  },
+  settings: {
+    description: 'Home action that opens client settings.',
+    en: 'Settings',
+    es: 'Ajustes',
+  },
+  backToHome: {
+    description: 'Link from later screens back to the home screen.',
+    en: 'Back to home',
+    es: 'Volver al inicio',
+  },
+  proposalsTitle: {
+    description: 'Heading for the proposal-list placeholder.',
+    en: 'Proposals',
+    es: 'Propuestas',
+  },
+  proposalsPlaceholder: {
+    description: 'Explains that the proposal list is a later stage.',
+    en: 'The list of proposals will appear here.',
+    es: 'La lista de propuestas aparecerá aquí.',
+  },
+  votesTitle: {
+    description: 'Heading for the my-votes placeholder.',
+    en: 'My votes',
+    es: 'Mis votos',
+  },
+  votesPlaceholder: {
+    description: 'Explains that vote history is a later stage.',
+    en: 'Your votes will appear here.',
+    es: 'Sus votos aparecerán aquí.',
+  },
+  settingsTitle: {
+    description: 'Heading for the settings placeholder.',
+    en: 'Settings',
+    es: 'Ajustes',
+  },
+  settingsPlaceholder: {
+    description: 'Explains that settings are a later stage.',
+    en: 'Settings will appear here.',
+    es: 'Los ajustes aparecerán aquí.',
+  },
 } as const;
 
 export type MessageKey = keyof typeof messages;
