@@ -56,7 +56,6 @@ const include = {
     orderBy: { credentialVersion: 'desc' as const },
     select: {
       id: true,
-      credentialId: true,
       votingScopeId: true,
       status: true,
       credentialVersion: true,
@@ -64,7 +63,6 @@ const include = {
       expiresAt: true,
       revokedAt: true,
       revocationReason: true,
-      publicKeyFingerprint: true,
       replacedByCredentialId: true,
     },
   },
@@ -88,7 +86,6 @@ const auditorSelect = {
     orderBy: { credentialVersion: 'desc' as const },
     select: {
       id: true,
-      credentialId: true,
       votingScopeId: true,
       status: true,
       credentialVersion: true,

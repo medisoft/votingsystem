@@ -753,7 +753,6 @@ it('revokes and reissues an issued credential from the recovery form', async () 
   };
   let credential: Record<string, unknown> = {
     id: 'cred-1',
-    credentialId: '11111111-1111-4111-8111-111111111111',
     votingScopeId: 'scope-1',
     status: 'ACTIVE',
     credentialVersion: 1,
@@ -761,7 +760,6 @@ it('revokes and reissues an issued credential from the recovery form', async () 
     expiresAt: scope.credentialExpiresAt,
     revokedAt: null,
     revocationReason: null,
-    publicKeyFingerprint: 'a'.repeat(64),
     replacedByCredentialId: null,
   };
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

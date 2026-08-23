@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   ActivationTokenStatus,
   ActorType,
@@ -11,6 +10,13 @@ import { z } from 'zod';
 import { appendAudit } from './audit.js';
 import { hashActivationToken } from './activation-tokens.js';
 import {
+  RSA_MODULUS_BYTES,
+  blindSignCommitment,
+  bytesToBase64url,
+  hashBlindedMessage,
+  parseFixedBytes,
+} from './blind-rsa.js';
+import {
   linkReplacementCredential,
   nextCredentialVersion,
   publicIssuedCredential,
@@ -18,24 +24,34 @@ import {
   revokeCredential,
 } from './credential-admin.js';
 import {
-  CREDENTIAL_PUBLIC_KEY_ALGORITHM,
+  BLIND_CREDENTIAL_PROTOCOL,
   CREDENTIAL_SCHEMA_VERSION,
-  canonicalizeCredentialPayload,
+  canonicalizePublicMetadata,
   canonicalizeRevocationList,
-  fingerprintPublicKey,
   formatVotingWeight,
   isValidClientNonce,
-  parseEd25519PublicKey,
   publicCredentialStatus,
-  type CredentialPayload,
+  type PublicMetadata,
   type RevocationListPayload,
 } from './credentials.js';
-import { signCanonical, type Issuer } from './issuer-keys.js';
+import { ISSUER_ALGORITHM, signCanonical, type Issuer } from './issuer-keys.js';
 
-const activateBody = z.object({
+const tokenBody = z.object({
   activationToken: z.string().min(1).max(128),
-  publicKey: z.string().min(1).max(128),
-  publicKeyAlgorithm: z.literal(CREDENTIAL_PUBLIC_KEY_ALGORITHM),
+});
+const activateBody = tokenBody.extend({
+  protocol: z.literal(BLIND_CREDENTIAL_PROTOCOL),
+  blindedMessage: z.string().min(1).max(512),
+  publicMetadata: z.object({
+    schemaVersion: z.literal(CREDENTIAL_SCHEMA_VERSION),
+    protocol: z.literal(BLIND_CREDENTIAL_PROTOCOL),
+    scopeId: z.string().uuid(),
+    weight: z.string().regex(/^\d+\.\d{4}$/),
+    credentialVersion: z.number().int().positive(),
+    expiresAt: z.string().datetime({ offset: true }),
+    issuer: z.string().min(1).max(200),
+    keyVersion: z.string().min(1).max(100),
+  }),
   clientNonce: z.string().min(1).max(64),
 });
 const uuid = z.string().uuid();
@@ -45,9 +61,7 @@ const reissueBody = revokeBody.extend({
   expiresAt: z.string().datetime({ offset: true }).optional(),
   deliveryMethod: z.string().trim().min(1).max(64).optional(),
 });
-const credentialStatusParams = z.object({
-  credentialFingerprint: z.string().min(1).max(64),
-});
+const issuanceStatusParams = z.object({ issuanceId: uuid });
 const scopeParams = z.object({ scopeId: uuid });
 
 const ACTIVATION_TRANSACTION_TIMEOUT_MS = 60_000;
@@ -82,19 +96,22 @@ interface ActivationContext {
 }
 
 /**
- * Turns a stored credential into the public activation response envelope.
+ * Public issuance envelope returned after blind signing. It does not include
+ * the voter public key or the unblinded credential.
  *
- * @param record - Persisted issued credential including the signed payload.
- * @returns Payload, signature, and issuer key version.
+ * @param record - Persisted issuance row.
+ * @returns Blinded signature and the public metadata used as `info`.
  */
-function credentialEnvelope(record: {
-  canonicalPayload: string;
-  signature: string;
+function issuanceEnvelope(record: {
+  publicMetadata: string;
+  blindedSignature: string;
   issuerKeyVersion: string;
+  protocol: string;
 }) {
   return {
-    payload: JSON.parse(record.canonicalPayload) as CredentialPayload,
-    signature: record.signature,
+    protocol: record.protocol,
+    publicMetadata: JSON.parse(record.publicMetadata) as PublicMetadata,
+    blindedSignature: record.blindedSignature,
     keyVersion: record.issuerKeyVersion,
   };
 }
@@ -202,6 +219,61 @@ function validateActivation(
   return undefined;
 }
 
+/**
+ * Resolves voting weight for a locked registration and scope.
+ *
+ * @param tx - Prisma transaction.
+ * @param context - Locked registration and scope.
+ * @returns Weight and eligibility, or an error when the record is ineligible.
+ */
+async function resolveEligibility(
+  tx: Prisma.TransactionClient,
+  context: ActivationContext,
+): Promise<{ weight: Prisma.Decimal } | ActivationError> {
+  const eligibility = await tx.scopeEligibility.findUnique({
+    where: {
+      registrationRecordId_votingScopeId: {
+        registrationRecordId: context.registration.id,
+        votingScopeId: context.scope.id,
+      },
+    },
+    select: { eligible: true, votingWeight: true },
+  });
+  if (eligibility?.eligible === false)
+    return { error: 'REGISTRATION_NOT_ELIGIBLE', status: 409 };
+  return {
+    weight: new Prisma.Decimal(
+      eligibility?.votingWeight ?? context.registration.votingWeight,
+    ),
+  };
+}
+
+/**
+ * Builds the public metadata the client must use when blinding.
+ *
+ * @param context - Locked registration and scope.
+ * @param issuer - Configured issuer.
+ * @param weight - Canonical voting weight.
+ * @param credentialVersion - Version that will be issued.
+ */
+function buildPublicMetadata(
+  context: ActivationContext,
+  issuer: Issuer,
+  weight: Prisma.Decimal,
+  credentialVersion: number,
+): PublicMetadata {
+  return {
+    schemaVersion: CREDENTIAL_SCHEMA_VERSION,
+    protocol: BLIND_CREDENTIAL_PROTOCOL,
+    scopeId: context.scope.id,
+    weight: formatVotingWeight(weight),
+    credentialVersion,
+    expiresAt: context.scope.credentialExpiresAt.toISOString(),
+    issuer: issuer.issuer,
+    keyVersion: issuer.keyVersion,
+  };
+}
+
 export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
   app.get(
     '/api/v1/public/issuer-keys',
@@ -210,12 +282,76 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
       keys: [
         {
           keyVersion: issuer.keyVersion,
-          algorithm: CREDENTIAL_PUBLIC_KEY_ALGORITHM,
-          publicKey: issuer.publicKeyRawBase64url,
+          algorithm: ISSUER_ALGORITHM,
+          protocol: issuer.protocol,
+          modulusLength: issuer.modulusLength,
+          publicKey: issuer.publicKeyJwk,
           issuer: issuer.issuer,
         },
       ],
     }),
+  );
+
+  app.post(
+    '/api/v1/public/activation-context',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const body = tokenBody.safeParse(request.body);
+      if (!body.success)
+        return reply.code(400).send({ code: 'INVALID_ACTIVATION_REQUEST' });
+      const tokenHash = hashActivationToken(body.data.activationToken);
+      const result = await app.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRawUnsafe(
+            'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+            tokenHash,
+          );
+          const context = await lockActivationContext(tx, tokenHash);
+          if ('error' in context) return context;
+          if (context.token.status === ActivationTokenStatus.REDEEMED) {
+            const existing = await tx.issuedCredential.findUnique({
+              where: { activationTokenId: context.token.id },
+            });
+            if (!existing)
+              return {
+                error: 'ACTIVATION_TOKEN_ALREADY_REDEEMED' as const,
+                status: 409,
+              };
+            return {
+              replay: true as const,
+              publicMetadata: JSON.parse(
+                existing.publicMetadata,
+              ) as PublicMetadata,
+            };
+          }
+          const now = new Date();
+          const invalid = validateActivation(context, issuer.keyVersion, now);
+          if (invalid) return invalid;
+          const eligibility = await resolveEligibility(tx, context);
+          if ('error' in eligibility) return eligibility;
+          const publicMetadata = buildPublicMetadata(
+            context,
+            issuer,
+            eligibility.weight,
+            await nextCredentialVersion(
+              tx,
+              context.registration.id,
+              context.scope.id,
+            ),
+          );
+          return { replay: false as const, publicMetadata };
+        },
+        { timeout: ACTIVATION_TRANSACTION_TIMEOUT_MS },
+      );
+      if ('error' in result)
+        return reply.code(result.status).send({ code: result.error });
+      return {
+        protocol: BLIND_CREDENTIAL_PROTOCOL,
+        publicMetadata: result.publicMetadata,
+        keyVersion: issuer.keyVersion,
+        blindedMessageBytes: RSA_MODULUS_BYTES,
+      };
+    },
   );
 
   app.post(
@@ -227,10 +363,16 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
         return reply.code(400).send({ code: 'INVALID_ACTIVATION_REQUEST' });
       if (!isValidClientNonce(body.data.clientNonce))
         return reply.code(400).send({ code: 'INVALID_CLIENT_NONCE' });
-      const publicKeyRaw = parseEd25519PublicKey(body.data.publicKey);
-      if (!publicKeyRaw)
-        return reply.code(400).send({ code: 'INVALID_PUBLIC_KEY' });
-      const publicKey = publicKeyRaw.toString('base64url');
+      const blindedMessage = parseFixedBytes(
+        body.data.blindedMessage,
+        RSA_MODULUS_BYTES,
+      );
+      if (!blindedMessage)
+        return reply.code(400).send({ code: 'INVALID_BLINDED_MESSAGE' });
+      const blindedMessageHash = hashBlindedMessage(blindedMessage);
+      const echoedMetadata = canonicalizePublicMetadata(
+        body.data.publicMetadata,
+      );
       const tokenHash = hashActivationToken(body.data.activationToken);
       const result = await app.prisma.$transaction(
         async (tx) => {
@@ -240,31 +382,22 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
           );
           const context = await lockActivationContext(tx, tokenHash);
           if ('error' in context) return context;
-          const now = new Date();
           if (context.token.status === ActivationTokenStatus.REDEEMED) {
             const existing = await tx.issuedCredential.findUnique({
               where: { activationTokenId: context.token.id },
             });
-            if (existing?.publicKey === publicKey)
+            if (existing?.blindedMessageHash === blindedMessageHash)
               return { replay: true as const, credential: existing };
             return {
               error: 'ACTIVATION_TOKEN_ALREADY_REDEEMED' as const,
               status: 409,
             };
           }
+          const now = new Date();
           const invalid = validateActivation(context, issuer.keyVersion, now);
           if (invalid) return invalid;
-          const eligibility = await tx.scopeEligibility.findUnique({
-            where: {
-              registrationRecordId_votingScopeId: {
-                registrationRecordId: context.registration.id,
-                votingScopeId: context.scope.id,
-              },
-            },
-            select: { eligible: true, votingWeight: true },
-          });
-          if (eligibility?.eligible === false)
-            return { error: 'REGISTRATION_NOT_ELIGIBLE' as const, status: 409 };
+          const eligibility = await resolveEligibility(tx, context);
+          if ('error' in eligibility) return eligibility;
           const alreadyIssued = await tx.issuedCredential.findFirst({
             where: {
               registrationRecordId: context.registration.id,
@@ -290,27 +423,31 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
               replacedByCredentialId: true,
             },
           });
-          const weight = new Prisma.Decimal(
-            eligibility?.votingWeight ?? context.registration.votingWeight,
+          const credentialVersion = await nextCredentialVersion(
+            tx,
+            context.registration.id,
+            context.scope.id,
           );
-          const payload: CredentialPayload = {
-            schemaVersion: CREDENTIAL_SCHEMA_VERSION,
-            credentialId: randomUUID(),
-            scopeId: context.scope.id,
-            publicKey,
-            publicKeyAlgorithm: CREDENTIAL_PUBLIC_KEY_ALGORITHM,
-            weight: formatVotingWeight(weight),
-            credentialVersion: await nextCredentialVersion(
-              tx,
-              context.registration.id,
-              context.scope.id,
-            ),
-            issuedAt: now.toISOString(),
-            expiresAt: context.scope.credentialExpiresAt.toISOString(),
-            issuer: issuer.issuer,
-          };
-          const canonicalPayload = canonicalizeCredentialPayload(payload);
-          const signature = signCanonical(canonicalPayload, issuer.privateKey);
+          const publicMetadata = buildPublicMetadata(
+            context,
+            issuer,
+            eligibility.weight,
+            credentialVersion,
+          );
+          if (canonicalizePublicMetadata(publicMetadata) !== echoedMetadata)
+            return { error: 'PUBLIC_METADATA_MISMATCH' as const, status: 409 };
+          let blindedSignature: string;
+          try {
+            blindedSignature = bytesToBase64url(
+              await blindSignCommitment(
+                issuer.privateKey,
+                blindedMessage,
+                publicMetadata,
+              ),
+            );
+          } catch {
+            return { error: 'INVALID_BLINDED_MESSAGE' as const, status: 400 };
+          }
           const redeemed = await tx.activationToken.updateMany({
             where: {
               id: context.token.id,
@@ -331,17 +468,15 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
               registrationRecordId: context.registration.id,
               votingScopeId: context.scope.id,
               activationTokenId: context.token.id,
-              credentialId: payload.credentialId,
-              publicKey,
-              publicKeyFingerprint: fingerprintPublicKey(publicKeyRaw),
-              publicKeyAlgorithm: CREDENTIAL_PUBLIC_KEY_ALGORITHM,
-              weight,
-              credentialVersion: payload.credentialVersion,
-              schemaVersion: payload.schemaVersion,
+              protocol: BLIND_CREDENTIAL_PROTOCOL,
+              publicMetadata: canonicalizePublicMetadata(publicMetadata),
+              blindedMessageHash,
+              blindedSignature,
+              weight: eligibility.weight,
+              credentialVersion,
+              schemaVersion: CREDENTIAL_SCHEMA_VERSION,
               issuedAt: now,
               expiresAt: context.scope.credentialExpiresAt,
-              canonicalPayload,
-              signature,
               issuerKeyVersion: issuer.keyVersion,
             },
           });
@@ -353,13 +488,12 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
             targetId: credential.id,
             sourceIp: request.ip,
             metadata: {
-              credentialId: credential.credentialId,
               votingScopeId: context.scope.id,
               activationTokenId: context.token.id,
               tokenPrefixForSupport: context.token.tokenPrefixForSupport,
-              publicKeyFingerprint: credential.publicKeyFingerprint,
               credentialVersion: credential.credentialVersion,
               issuerKeyVersion: issuer.keyVersion,
+              protocol: BLIND_CREDENTIAL_PROTOCOL,
             },
           });
           await appendAudit(tx, {
@@ -369,7 +503,6 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
             targetId: context.token.id,
             sourceIp: request.ip,
             metadata: {
-              credentialId: credential.credentialId,
               tokenPrefixForSupport: context.token.tokenPrefixForSupport,
             },
           });
@@ -380,35 +513,24 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
       if ('error' in result)
         return reply.code(result.status).send({ code: result.error });
       return reply.code(result.replay ? 200 : 201).send({
-        credential: credentialEnvelope(result.credential),
+        credential: issuanceEnvelope(result.credential),
       });
     },
   );
 
   app.get(
-    '/api/v1/public/credential-status/:credentialFingerprint',
+    '/api/v1/public/issuance-status/:issuanceId',
     { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      const params = credentialStatusParams.safeParse(request.params);
+      const params = issuanceStatusParams.safeParse(request.params);
       if (!params.success)
         return reply
           .code(400)
           .send({ code: 'INVALID_CREDENTIAL_STATUS_REQUEST' });
-      const lookup = params.data.credentialFingerprint.toLowerCase();
-      const where = uuid.safeParse(lookup).success
-        ? { credentialId: lookup }
-        : /^[0-9a-f]{64}$/.test(lookup)
-          ? { publicKeyFingerprint: lookup }
-          : null;
-      if (!where)
-        return reply
-          .code(400)
-          .send({ code: 'INVALID_CREDENTIAL_STATUS_REQUEST' });
-      const record = await app.prisma.issuedCredential.findFirst({
-        where,
-        orderBy: [{ status: 'asc' }, { issuedAt: 'desc' }],
+      const record = await app.prisma.issuedCredential.findUnique({
+        where: { id: params.data.issuanceId },
         select: {
-          credentialId: true,
+          id: true,
           credentialVersion: true,
           status: true,
           expiresAt: true,
@@ -437,19 +559,20 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
       const revoked = await app.prisma.issuedCredential.findMany({
         where: { votingScopeId: scope.id, status: 'REVOKED' },
         select: {
-          credentialId: true,
+          id: true,
           credentialVersion: true,
           revokedAt: true,
         },
-        orderBy: { credentialId: 'asc' },
+        orderBy: { id: 'asc' },
       });
       const payload: RevocationListPayload = {
         schemaVersion: CREDENTIAL_SCHEMA_VERSION,
         scopeId: scope.id,
         generatedAt: new Date().toISOString(),
         issuer: issuer.issuer,
+        protocol: BLIND_CREDENTIAL_PROTOCOL,
         revoked: revoked.map((entry) => ({
-          credentialId: entry.credentialId,
+          issuanceId: entry.id,
           credentialVersion: entry.credentialVersion,
           revokedAt: entry.revokedAt!.toISOString(),
         })),
@@ -457,7 +580,7 @@ export function registerCredentialRoutes(app: FastifyInstance, issuer: Issuer) {
       const canonical = canonicalizeRevocationList(payload);
       return {
         payload: JSON.parse(canonical) as RevocationListPayload,
-        signature: signCanonical(canonical, issuer.privateKey),
+        signature: await signCanonical(canonical, issuer.privateKey),
         keyVersion: issuer.keyVersion,
       };
     },

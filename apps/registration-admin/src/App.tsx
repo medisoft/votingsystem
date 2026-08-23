@@ -97,7 +97,6 @@ interface Registration {
 }
 interface IssuedCredentialSummary {
   id: string;
-  credentialId: string;
   votingScopeId: string;
   status: 'ACTIVE' | 'REVOKED';
   credentialVersion: number;
@@ -105,7 +104,6 @@ interface IssuedCredentialSummary {
   expiresAt: string;
   revokedAt: string | null;
   revocationReason?: string | null;
-  publicKeyFingerprint?: string;
   replacedByCredentialId: string | null;
 }
 interface ActivationTokenSummary {

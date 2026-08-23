@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { parseEd25519PrivateKey } from './issuer-keys.js';
+import { parseRsaPrivateKey } from './issuer-keys.js';
 
 const envSchema = z
   .object({
@@ -93,7 +93,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
   assertNoBallotDatabaseAccess(env);
   const parsed = envSchema.parse(env);
   const issuerPrivateKey = resolveIssuerPrivateKey(parsed);
-  parseEd25519PrivateKey(issuerPrivateKey);
+  parseRsaPrivateKey(issuerPrivateKey);
   return {
     NODE_ENV: parsed.NODE_ENV,
     HOST: parsed.HOST,

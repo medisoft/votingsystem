@@ -1,14 +1,14 @@
 # Registration service threat model
 
 This document describes trust boundaries and residual risks for the
-registration and credential-issuance service through Stage 10.
+registration and credential-issuance service through Stage 11.
 
 ## Assets
 
 - Condominium identity data (unit, owner, contact, weight, eligibility).
 - One-time activation tokens (shown once; stored only as SHA-256).
 - Administrator passwords, sessions, and optional TOTP secrets.
-- Issuer Ed25519 private key used to sign prototype credentials.
+- Issuer RSA private key used for experimental partially-blind credentials.
 - Hash-chained administrative audit events.
 
 ## Trust boundaries
@@ -25,7 +25,7 @@ registration and credential-issuance service through Stage 10.
         |
         x  must not hold BALLOT_DATABASE_URL / VOTING_DATABASE_URL
 
-[Voter device] -- activation token + voter public key --> [registration-api]
+[Voter device] -- activation token + blinded commitment --> [registration-api]
 [Ballot service] -- not this codebase -- anonymous credentials only
 ```
 
@@ -57,9 +57,12 @@ API process refuses ballot-service DSNs at startup.
 
 ## Residual risks
 
-- Stage 7–8 issuance still stores a temporary identity-to-credential link
-  (`IssuedCredential.registrationRecordId`). This is operational anonymity
-  only; unlinkability is Stage 11.
+- Stage 11 issuance still stores `IssuedCredential.registrationRecordId` so
+  the service can enforce one credential per entitlement. It no longer stores
+  the voter public key, credential UUID, or unblinded signature. Unique
+  voting weights in public metadata can still distinguish some entitlements.
+  Unblinded signatures are not cryptographically revoked; see
+  `docs/BLIND_CREDENTIALS.md`. The implementation is experimental.
 - Truncated IPs still identify a neighborhood-sized prefix.
 - Hash-chained audit events are not deleted after `AUDIT_RETENTION_DAYS`;
   operators must archive and encrypt, not rewrite hashed rows.

@@ -7,15 +7,15 @@ import {
   generateActivationToken,
   hashActivationToken,
 } from '../src/activation-tokens.js';
+import { bytesToBase64url, hashBlindedMessage } from '../src/blind-rsa.js';
 import {
-  canonicalizeCredentialPayload,
+  BLIND_CREDENTIAL_PROTOCOL,
   canonicalizeRevocationList,
-  fingerprintPublicKey,
   generateClientNonce,
-  type CredentialPayload,
+  type PublicMetadata,
   type RevocationListPayload,
 } from '../src/credentials.js';
-import { verifyCanonical } from '../src/issuer-keys.js';
+import { createIssuer, verifyCanonical } from '../src/issuer-keys.js';
 import { generateTotpCode } from '../src/totp.js';
 import {
   IMPORT_TRANSACTION_TIMEOUT_MS,
@@ -23,7 +23,8 @@ import {
 } from '../src/imports.js';
 import { prisma } from '../src/plugins/database.js';
 import { assertSafeTestDatabase } from './database-safety.js';
-import { testConfig, testIssuer } from './test-config.js';
+import { redeemBlindActivation } from './blind-activate.js';
+import { testConfig, testIssuerPrivateKey } from './test-config.js';
 
 const enabled = process.env.ALLOW_DATABASE_RESET === 'true';
 if (enabled) assertSafeTestDatabase(process.env.DATABASE_URL ?? '');
@@ -44,6 +45,31 @@ function voterPublicKey() {
   )
     .subarray(-32)
     .toString('base64url');
+}
+
+/**
+ * Well-formed activate body that is not a successful client blinding.
+ *
+ * @param rawToken - Activation token placed in the request.
+ * @returns Payload accepted by request validation.
+ */
+function dummyActivatePayload(rawToken: string) {
+  return {
+    activationToken: rawToken,
+    protocol: BLIND_CREDENTIAL_PROTOCOL,
+    blindedMessage: Buffer.alloc(256, 1).toString('base64url'),
+    publicMetadata: {
+      schemaVersion: 2,
+      protocol: BLIND_CREDENTIAL_PROTOCOL,
+      scopeId: '11111111-1111-4111-8111-111111111111',
+      weight: '1.0000',
+      credentialVersion: 1,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      issuer: config.ISSUER_ID,
+      keyVersion: config.ISSUER_KEY_VERSION,
+    },
+    clientNonce: generateClientNonce(),
+  };
 }
 
 /**
@@ -1483,61 +1509,58 @@ INVALID-ONLY,
   it('issues one independently verifiable credential per activation token', async () => {
     const keys = await app.inject({ url: '/api/v1/public/issuer-keys' });
     expect(keys.statusCode).toBe(200);
-    expect(keys.json().keys).toEqual([
-      {
-        keyVersion: config.ISSUER_KEY_VERSION,
-        algorithm: 'Ed25519',
-        publicKey: testIssuer.publicKeyRawBase64url,
-        issuer: config.ISSUER_ID,
-      },
-    ]);
+    expect(keys.json().keys[0]).toMatchObject({
+      keyVersion: config.ISSUER_KEY_VERSION,
+      algorithm: 'RSAPBSSA-SHA384-PSS-Randomized',
+      protocol: 'draft-amjad-cfrg-partially-blind-rsa-02',
+      modulusLength: 2048,
+      issuer: config.ISSUER_ID,
+      publicKey: expect.objectContaining({ kty: 'RSA', alg: 'PS384' }),
+    });
 
     const fixture = await openActivation('CRED-API-1');
     const publicKey = voterPublicKey();
-    const nonce = generateClientNonce();
-    const issued = await app.inject({
-      method: 'POST',
-      url: '/api/v1/public/activate',
-      remoteAddress: '127.0.0.30',
-      payload: {
-        activationToken: fixture.rawToken,
-        publicKey,
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: nonce,
-      },
-    });
-    expect(issued.statusCode).toBe(201);
-    const credential = issued.json().credential;
-    expect(credential.payload).toMatchObject({
-      schemaVersion: 1,
-      scopeId: fixture.scope.id,
+    const first = await redeemBlindActivation(
+      app,
+      fixture.rawToken,
       publicKey,
-      publicKeyAlgorithm: 'Ed25519',
+    );
+    expect(first.issued.statusCode).toBe(201);
+    expect(first.verified).toBe(true);
+    const credential = first.issued.json().credential as {
+      publicMetadata: PublicMetadata;
+      blindedSignature: string;
+    };
+    expect(credential.publicMetadata).toMatchObject({
+      schemaVersion: 2,
+      protocol: BLIND_CREDENTIAL_PROTOCOL,
+      scopeId: fixture.scope.id,
       weight: '2.5000',
       credentialVersion: 1,
       issuer: config.ISSUER_ID,
+      keyVersion: config.ISSUER_KEY_VERSION,
     });
-    expect(credential.keyVersion).toBe(config.ISSUER_KEY_VERSION);
-    const canonical = canonicalizeCredentialPayload(
-      credential.payload as CredentialPayload,
+    expect(JSON.stringify(first.issued.json())).not.toContain(publicKey);
+    expect(JSON.stringify(first.issued.json())).not.toContain(
+      first.commitment.credentialId,
     );
-    expect(
-      verifyCanonical(
-        canonical,
-        credential.signature,
-        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
-      ),
-    ).toBe(true);
-    expect(JSON.stringify(issued.json())).not.toContain(
-      testIssuer.privateKeyPkcs8DerBase64url,
+    expect(JSON.stringify(first.issued.json())).not.toContain(
+      testIssuerPrivateKey,
     );
-    expect(JSON.stringify(issued.json())).not.toContain(fixture.rawToken);
+    expect(JSON.stringify(first.issued.json())).not.toContain(fixture.rawToken);
+    const stored = await prisma.issuedCredential.findUniqueOrThrow({
+      where: { activationTokenId: fixture.token.id },
+    });
+    expect(stored.blindedMessageHash).toBe(
+      hashBlindedMessage(first.blindedMsg),
+    );
+    expect(JSON.stringify(stored)).not.toContain(publicKey);
+    expect(JSON.stringify(stored)).not.toContain(first.commitment.credentialId);
     expect(
       await prisma.activationToken.findUniqueOrThrow({
         where: { id: fixture.token.id },
       }),
     ).toMatchObject({ status: ActivationTokenStatus.REDEEMED });
-    expect(await prisma.issuedCredential.count()).toBeGreaterThanOrEqual(1);
 
     const replay = await app.inject({
       method: 'POST',
@@ -1545,35 +1568,32 @@ INVALID-ONLY,
       remoteAddress: '127.0.0.30',
       payload: {
         activationToken: fixture.rawToken,
-        publicKey,
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: nonce,
+        protocol: BLIND_CREDENTIAL_PROTOCOL,
+        blindedMessage: bytesToBase64url(first.blindedMsg),
+        publicMetadata: credential.publicMetadata,
+        clientNonce: generateClientNonce(),
       },
     });
     expect(replay.statusCode).toBe(200);
-    expect(replay.json().credential.payload.credentialId).toBe(
-      credential.payload.credentialId,
+    expect(replay.json().credential.blindedSignature).toBe(
+      credential.blindedSignature,
     );
-    expect(replay.json().credential.signature).toBe(credential.signature);
     expect(
       await prisma.issuedCredential.count({
         where: { activationTokenId: fixture.token.id },
       }),
     ).toBe(1);
 
-    const otherKey = await app.inject({
-      method: 'POST',
-      url: '/api/v1/public/activate',
-      remoteAddress: '127.0.0.31',
-      payload: {
-        activationToken: fixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
-    });
-    expect(otherKey.statusCode).toBe(409);
-    expect(otherKey.json().code).toBe('ACTIVATION_TOKEN_ALREADY_REDEEMED');
+    const otherBlind = await redeemBlindActivation(
+      app,
+      fixture.rawToken,
+      voterPublicKey(),
+      '127.0.0.31',
+    );
+    expect(otherBlind.issued.statusCode).toBe(409);
+    expect(otherBlind.issued.json().code).toBe(
+      'ACTIVATION_TOKEN_ALREADY_REDEEMED',
+    );
 
     const secondSecret = generateActivationToken();
     await prisma.activationToken.create({
@@ -1590,19 +1610,14 @@ INVALID-ONLY,
         expiresAt: fixture.token.expiresAt,
       },
     });
-    const secondIssuance = await app.inject({
-      method: 'POST',
-      url: '/api/v1/public/activate',
-      remoteAddress: '127.0.0.31',
-      payload: {
-        activationToken: secondSecret.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
-    });
-    expect(secondIssuance.statusCode).toBe(409);
-    expect(secondIssuance.json().code).toBe('CREDENTIAL_ALREADY_ISSUED');
+    const secondIssuance = await redeemBlindActivation(
+      app,
+      secondSecret.rawToken,
+      voterPublicKey(),
+      '127.0.0.31',
+    );
+    expect(secondIssuance.issued.statusCode).toBe(409);
+    expect(secondIssuance.issued.json().code).toBe('CREDENTIAL_ALREADY_ISSUED');
     expect(
       await prisma.activationToken.findUniqueOrThrow({
         where: { tokenHash: secondSecret.tokenHash },
@@ -1613,28 +1628,21 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.32',
-      payload: {
-        activationToken: generateActivationToken().rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(generateActivationToken().rawToken),
     });
     expect(missing.statusCode).toBe(404);
 
-    const invalidKey = await app.inject({
+    const invalidBlind = await app.inject({
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.33',
       payload: {
-        activationToken: fixture.rawToken,
-        publicKey: 'not-a-public-key',
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
+        ...dummyActivatePayload(fixture.rawToken),
+        blindedMessage: 'not-a-blinded-message',
       },
     });
-    expect(invalidKey.statusCode).toBe(400);
-    expect(invalidKey.json().code).toBe('INVALID_PUBLIC_KEY');
+    expect(invalidBlind.statusCode).toBe(400);
+    expect(invalidBlind.json().code).toBe('INVALID_BLINDED_MESSAGE');
 
     const revokedFixture = await openActivation('CRED-API-REVOKED');
     await prisma.activationToken.update({
@@ -1649,12 +1657,7 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.34',
-      payload: {
-        activationToken: revokedFixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(revokedFixture.rawToken),
     });
     expect(revoked.statusCode).toBe(409);
     expect(revoked.json().code).toBe('ACTIVATION_TOKEN_REVOKED');
@@ -1671,12 +1674,7 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.35',
-      payload: {
-        activationToken: expiredFixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(expiredFixture.rawToken),
     });
     expect(expired.statusCode).toBe(409);
     expect(expired.json().code).toBe('ACTIVATION_TOKEN_EXPIRED');
@@ -1690,12 +1688,7 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.36',
-      payload: {
-        activationToken: ineligibleFixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(ineligibleFixture.rawToken),
     });
     expect(ineligible.statusCode).toBe(409);
     expect(ineligible.json().code).toBe('REGISTRATION_NOT_ELIGIBLE');
@@ -1709,12 +1702,7 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.37',
-      payload: {
-        activationToken: closedFixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(closedFixture.rawToken),
     });
     expect(closed.statusCode).toBe(409);
     expect(closed.json().code).toBe('ACTIVATION_SCOPE_NOT_OPEN');
@@ -1728,12 +1716,7 @@ INVALID-ONLY,
       method: 'POST',
       url: '/api/v1/public/activate',
       remoteAddress: '127.0.0.38',
-      payload: {
-        activationToken: mismatchFixture.rawToken,
-        publicKey: voterPublicKey(),
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
+      payload: dummyActivatePayload(mismatchFixture.rawToken),
     });
     expect(mismatch.statusCode).toBe(409);
     expect(mismatch.json().code).toBe('ISSUER_KEY_MISMATCH');
@@ -1750,9 +1733,7 @@ INVALID-ONLY,
       ]),
     );
     expect(JSON.stringify(audits)).not.toContain(fixture.rawToken);
-    expect(JSON.stringify(audits)).not.toContain(
-      testIssuer.privateKeyPkcs8DerBase64url,
-    );
+    expect(JSON.stringify(audits)).not.toContain(testIssuerPrivateKey);
     expect(JSON.stringify(audits)).not.toContain(publicKey);
 
     for (let attempt = 0; attempt < 10; attempt += 1)
@@ -1762,12 +1743,7 @@ INVALID-ONLY,
             method: 'POST',
             url: '/api/v1/public/activate',
             remoteAddress: '127.0.0.39',
-            payload: {
-              activationToken: generateActivationToken().rawToken,
-              publicKey: voterPublicKey(),
-              publicKeyAlgorithm: 'Ed25519',
-              clientNonce: generateClientNonce(),
-            },
+            payload: dummyActivatePayload(generateActivationToken().rawToken),
           })
         ).statusCode,
       ).toBe(404);
@@ -1777,12 +1753,7 @@ INVALID-ONLY,
           method: 'POST',
           url: '/api/v1/public/activate',
           remoteAddress: '127.0.0.39',
-          payload: {
-            activationToken: generateActivationToken().rawToken,
-            publicKey: voterPublicKey(),
-            publicKeyAlgorithm: 'Ed25519',
-            clientNonce: generateClientNonce(),
-          },
+          payload: dummyActivatePayload(generateActivationToken().rawToken),
         })
       ).statusCode,
     ).toBe(429);
@@ -1790,35 +1761,19 @@ INVALID-ONLY,
 
   it('enforces issued credential storage invariants', async () => {
     const fixture = await openActivation('CRED-DB-1');
-    const publicKey = voterPublicKey();
     const now = new Date();
-    const payload = {
-      schemaVersion: 1,
-      credentialId: '33333333-3333-4333-8333-333333333333',
-      scopeId: fixture.scope.id,
-      publicKey,
-      publicKeyAlgorithm: 'Ed25519',
-      weight: '2.5000',
-      credentialVersion: 1,
-      issuedAt: now.toISOString(),
-      expiresAt: fixture.scope.credentialExpiresAt.toISOString(),
-      issuer: config.ISSUER_ID,
-    };
-    const canonicalPayload = canonicalizeCredentialPayload(payload);
     const first = await prisma.issuedCredential.create({
       data: {
         registrationRecordId: fixture.registration.id,
         votingScopeId: fixture.scope.id,
         activationTokenId: fixture.token.id,
-        credentialId: payload.credentialId,
-        publicKey,
-        publicKeyFingerprint: 'a'.repeat(64),
-        publicKeyAlgorithm: 'Ed25519',
+        protocol: BLIND_CREDENTIAL_PROTOCOL,
+        publicMetadata: '{}',
+        blindedMessageHash: 'a'.repeat(64),
+        blindedSignature: 'b'.repeat(342),
         weight: new Prisma.Decimal('2.5000'),
         issuedAt: now,
         expiresAt: fixture.scope.credentialExpiresAt,
-        canonicalPayload,
-        signature: 'b'.repeat(86),
         issuerKeyVersion: config.ISSUER_KEY_VERSION,
       },
     });
@@ -1847,15 +1802,13 @@ INVALID-ONLY,
           registrationRecordId: fixture.registration.id,
           votingScopeId: fixture.scope.id,
           activationTokenId: otherToken.id,
-          credentialId: '44444444-4444-4444-8444-444444444444',
-          publicKey: voterPublicKey(),
-          publicKeyFingerprint: 'c'.repeat(64),
-          publicKeyAlgorithm: 'Ed25519',
+          protocol: BLIND_CREDENTIAL_PROTOCOL,
+          publicMetadata: '{}',
+          blindedMessageHash: 'c'.repeat(64),
+          blindedSignature: 'd'.repeat(342),
           weight: new Prisma.Decimal('1.0000'),
           issuedAt: now,
           expiresAt: fixture.scope.credentialExpiresAt,
-          canonicalPayload: '{}',
-          signature: 'd'.repeat(86),
           issuerKeyVersion: config.ISSUER_KEY_VERSION,
         },
       }),
@@ -1866,20 +1819,18 @@ INVALID-ONLY,
           registrationRecordId: fixture.registration.id,
           votingScopeId: fixture.scope.id,
           activationTokenId: otherToken.id,
-          credentialId: '55555555-5555-4555-8555-555555555555',
-          publicKey: voterPublicKey(),
-          publicKeyFingerprint: 'not-hex',
-          publicKeyAlgorithm: 'Ed25519',
+          protocol: BLIND_CREDENTIAL_PROTOCOL,
+          publicMetadata: '{}',
+          blindedMessageHash: 'not-hex',
+          blindedSignature: 'e'.repeat(342),
           weight: new Prisma.Decimal('1.0000'),
           issuedAt: now,
           expiresAt: now,
-          canonicalPayload: '{}',
-          signature: 'e'.repeat(86),
           issuerKeyVersion: config.ISSUER_KEY_VERSION,
         },
       }),
     ).rejects.toThrow();
-    expect(first.publicKey).toHaveLength(43);
+    expect(first.blindedMessageHash).toHaveLength(64);
   });
 
   it('revokes and reissues credentials without exposing voter identity', async () => {
@@ -1908,32 +1859,24 @@ INVALID-ONLY,
 
     const fixture = await openActivation('CRED-REV-1');
     const publicKey = voterPublicKey();
-    const issued = await app.inject({
-      method: 'POST',
-      url: '/api/v1/public/activate',
-      remoteAddress: '127.0.0.42',
-      payload: {
-        activationToken: fixture.rawToken,
-        publicKey,
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
-    });
-    expect(issued.statusCode).toBe(201);
-    const payload = issued.json().credential.payload as CredentialPayload;
-    const stored = await prisma.issuedCredential.findUniqueOrThrow({
-      where: { credentialId: payload.credentialId },
-    });
-    const fingerprint = fingerprintPublicKey(
-      Buffer.from(publicKey, 'base64url'),
+    const issued = await redeemBlindActivation(
+      app,
+      fixture.rawToken,
+      publicKey,
+      '127.0.0.42',
     );
+    expect(issued.issued.statusCode).toBe(201);
+    expect(issued.verified).toBe(true);
+    const stored = await prisma.issuedCredential.findUniqueOrThrow({
+      where: { activationTokenId: fixture.token.id },
+    });
 
     const byId = await app.inject({
-      url: '/api/v1/public/credential-status/' + payload.credentialId,
+      url: '/api/v1/public/issuance-status/' + stored.id,
     });
     expect(byId.statusCode).toBe(200);
     expect(byId.json()).toMatchObject({
-      credentialId: payload.credentialId,
+      issuanceId: stored.id,
       status: 'ACTIVE',
       credentialVersion: 1,
       replaced: false,
@@ -1941,23 +1884,24 @@ INVALID-ONLY,
     });
     expect(JSON.stringify(byId.json())).not.toContain(fixture.registration.id);
     expect(JSON.stringify(byId.json())).not.toContain('Credential owner');
-    const byFingerprint = await app.inject({
-      url: '/api/v1/public/credential-status/' + fingerprint,
-    });
-    expect(byFingerprint.json().credentialId).toBe(payload.credentialId);
+    expect(JSON.stringify(byId.json())).not.toContain(publicKey);
+    expect(JSON.stringify(stored)).not.toContain(
+      issued.commitment.credentialId,
+    );
 
     const emptyList = await app.inject({
       url: '/api/v1/public/scopes/' + fixture.scope.id + '/revocations',
     });
     expect(emptyList.statusCode).toBe(200);
     expect(emptyList.json().payload.revoked).toEqual([]);
+    const issuer = await createIssuer(config);
     expect(
-      verifyCanonical(
+      await verifyCanonical(
         canonicalizeRevocationList(
           emptyList.json().payload as RevocationListPayload,
         ),
         emptyList.json().signature,
-        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
+        issuer.publicKey,
       ),
     ).toBe(true);
 
@@ -2006,7 +1950,7 @@ INVALID-ONLY,
     ).toMatchObject({ status: ActivationTokenStatus.REVOKED });
 
     const afterRevoke = await app.inject({
-      url: '/api/v1/public/credential-status/' + payload.credentialId,
+      url: '/api/v1/public/issuance-status/' + stored.id,
     });
     expect(afterRevoke.json()).toMatchObject({
       status: 'REVOKED',
@@ -2017,7 +1961,7 @@ INVALID-ONLY,
     });
     expect(list.json().payload.revoked).toEqual([
       expect.objectContaining({
-        credentialId: payload.credentialId,
+        issuanceId: stored.id,
         credentialVersion: 1,
       }),
     ]);
@@ -2049,46 +1993,37 @@ INVALID-ONLY,
       replacementToken,
     );
 
-    const replacementKey = voterPublicKey();
-    const replacement = await app.inject({
-      method: 'POST',
-      url: '/api/v1/public/activate',
-      remoteAddress: '127.0.0.43',
-      payload: {
-        activationToken: replacementToken,
-        publicKey: replacementKey,
-        publicKeyAlgorithm: 'Ed25519',
-        clientNonce: generateClientNonce(),
-      },
-    });
-    expect(replacement.statusCode).toBe(201);
-    expect(replacement.json().credential.payload.credentialVersion).toBe(2);
-    expect(replacement.json().credential.payload.credentialId).not.toBe(
-      payload.credentialId,
+    const replacement = await redeemBlindActivation(
+      app,
+      replacementToken,
+      voterPublicKey(),
+      '127.0.0.43',
     );
+    expect(replacement.issued.statusCode).toBe(201);
+    expect(replacement.verified).toBe(true);
     expect(
-      verifyCanonical(
-        canonicalizeCredentialPayload(
-          replacement.json().credential.payload as CredentialPayload,
-        ),
-        replacement.json().credential.signature,
-        Buffer.from(testIssuer.publicKeyRawBase64url, 'base64url'),
-      ),
-    ).toBe(true);
+      (
+        replacement.issued.json().credential as {
+          publicMetadata: PublicMetadata;
+        }
+      ).publicMetadata.credentialVersion,
+    ).toBe(2);
 
     const oldAfterReplace = await app.inject({
-      url: '/api/v1/public/credential-status/' + payload.credentialId,
+      url: '/api/v1/public/issuance-status/' + stored.id,
     });
     expect(oldAfterReplace.json()).toMatchObject({
       status: 'REVOKED',
       replaced: true,
     });
     const linked = await prisma.issuedCredential.findUniqueOrThrow({
-      where: { credentialId: payload.credentialId },
+      where: { id: stored.id },
     });
-    const newest = await prisma.issuedCredential.findUniqueOrThrow({
+    const newest = await prisma.issuedCredential.findFirstOrThrow({
       where: {
-        credentialId: replacement.json().credential.payload.credentialId,
+        registrationRecordId: fixture.registration.id,
+        votingScopeId: fixture.scope.id,
+        credentialVersion: 2,
       },
     });
     expect(linked.replacedByCredentialId).toBe(newest.id);

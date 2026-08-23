@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 10: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, prototype Ed25519 credential issuance, revocation, hash-chained audit verification, operational reports, and privacy hardening.
+Registration and Credential Issuance Service through Stage 11: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, and privacy hardening.
 
 ## Requirements
 
@@ -112,15 +112,7 @@ The admin uses jsPDF 4.2.1 for browser-local PDF generation instead of implement
 
 ## Stage 7 prototype credential issuance
 
-POST /api/v1/public/activate accepts an unused activation token and a 32-byte Ed25519 voter public key encoded as canonical base64url. The API never accepts or stores the voter private key. A valid request returns one signed credential whose payload matches the Stage 7 schema, then permanently redeems the token. Repeating the same token and public key returns the original credential without creating another row. Expired, revoked, ineligible, closed-scope, and already-redeemed tokens with a different public key are rejected.
-
-GET /api/v1/public/issuer-keys publishes the current issuer public key, algorithm, key version, and issuer identifier. Independent verifiers reconstruct the canonical JSON (fixed field order, UTF-8) and check the Ed25519 signature against that public key.
-
-Issuer signatures use Node.js `crypto` Ed25519 instead of an extra cryptographic library. Node 24 provides first-class Ed25519 generate, sign, and verify support, so adding tweetnacl or libsodium would duplicate a maintained platform API. Keys are generated outside application source and loaded from `ISSUER_PRIVATE_KEY` (PKCS8 DER, base64url) or `ISSUER_PRIVATE_KEY_FILE` (PKCS8 PEM). `ISSUER_KEY_VERSION` must match the voting scope’s `issuerKeyVersion` at issuance time. The Compose and `.env.example` values are development-only; generate a new key for any other environment:
-
-    node -e "const {generateKeyPairSync}=require('node:crypto'); console.log(generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64url'))"
-
-This stage provides operational anonymity only. The issuer still stores a temporary identity-to-credential link on `IssuedCredential` (`registrationRecordId` plus `credentialId` and public-key fingerprint). That link is required for the direct-signature prototype and will be removed or redesigned in the later blind-credential stage.
+Stage 7 introduced public activation. Stage 11 replaced direct Ed25519 signing of the voter public key with the experimental partially-blind RSA flow documented below. Historical Stage 7 behavior is no longer served.
 
 ## Stage 8 credential revocation and reissuance
 
@@ -128,16 +120,17 @@ POST /api/v1/admin/credentials/:id/revoke requires registration-write permission
 
 POST /api/v1/admin/credentials/:id/reissue performs the recovery workflow in one transaction: revoke the current credential if it is still ACTIVE, revoke leftover tokens, increment the next credential version, and return a one-time replacement activation token. The voter completes replacement through the normal public activation endpoint. The previous credential stays invalid. A credential that already has a successor is rejected.
 
-GET /api/v1/public/credential-status/:credentialFingerprint returns ACTIVE, REVOKED, or EXPIRED for a credential UUID or SHA-256 public-key fingerprint. GET /api/v1/public/scopes/:scopeId/revocations returns a signed list of revoked credential identifiers. Neither public endpoint includes owner, unit, registration id, public key, or revocation reason.
+GET `/api/v1/public/issuance-status/:issuanceId` returns ACTIVE, REVOKED, or EXPIRED for an internal issuance id. GET `/api/v1/public/scopes/:scopeId/revocations` returns a signed list of revoked issuance ids. Neither public endpoint includes owner, unit, registration id, public key, revocation reason, or the unlinkable credential identifier.
 
 The administrative UI shows credential status on each record and, for the selected registration and scope, supports revoke and reissue. Reissue reuses the existing one-time QR delivery screen. All recovery actions are audited as CREDENTIAL_REVOKED and CREDENTIAL_REISSUED.
 
 Pending manual tests:
 
-- After redeeming an activation token with a voter public key, `GET /api/v1/public/credential-status/<credentialId>` returns `ACTIVE`.
-- Revoke that credential from the dashboard with a reason. Public status becomes `REVOKED`, and `GET /api/v1/public/scopes/<scopeId>/revocations` lists that credential ID and verifies against the issuer public key.
-- Reissue with a reason, activate the replacement QR with a new public key. The new payload `credentialVersion` is `2`, and the old credential stays `REVOKED` with `replaced: true`.
-- Reissuing the original credential again returns `CREDENTIAL_ALREADY_REPLACED`.
+- On a registration that already has an issued credential, the dashboard shows status and version and does not show a public key.
+- Revoke from that record with a reason. Status becomes revoked.
+- Reissue with a reason. The existing QR delivery screen appears with a replacement token. The previous issuance stays revoked.
+- Reissuing the original credential again is rejected.
+- An auditor can view the record but cannot revoke or reissue.
 
 When creating a local voting scope, set issuer key version to `dev-2026-01` so it matches the Compose issuer.
 
@@ -195,3 +188,37 @@ Known limitations:
 - The admin CSP meta tag allows `'unsafe-eval'` for Vite HMR. Production static hosting should serve a stricter CSP without eval.
 - Hash-chained audit events are archived operationally, not physically pruned.
 - HTTPS termination and production secret storage remain deployment concerns.
+
+## Stage 11 blind credential prototype (experimental)
+
+This stage is **not production-ready**. It replaces direct Ed25519 signing of the voter public key with an experimental partially-blind RSA issuance flow. The protocol, library choice, and limitations are documented in `docs/BLIND_CREDENTIALS.md`.
+
+The API uses @cloudflare/blindrsa-ts 0.4.6 (Apache-2.0, Node >= 24) for RFC 9474 RSA blind signatures and draft-amjad-cfrg-partially-blind-rsa-02 public metadata. Node 24 has no built-in blind-signature API. The suite is `RSAPBSSA-SHA384-PSS-Randomized`. Issuer keys must be RSA-2048 with safe primes; generate them with `npm run issuer:generate -w @voting/registration-api`. Ordinary OpenSSL RSA keys are not suitable. The Compose and `.env.example` values are development-only.
+
+Issuance:
+
+1. POST `/api/v1/public/activation-context` with `{ activationToken }` returns `publicMetadata` (scope, weight, version, expiry, issuer, key version). The token is not redeemed.
+2. The voter app blinds a commitment `{ credentialId, publicKey, publicKeyAlgorithm }` using that metadata. The private key never leaves the client.
+3. POST `/api/v1/public/activate` with the token, protocol, blinded message, echoed public metadata, and client nonce. The API authenticates the token, signs the blinded value, redeems the token, and stores an issuance row that does **not** contain the voter public key, credential id, or unblinded signature.
+4. The client unblinds. The resulting signature verifies against the issuer public key from GET `/api/v1/public/issuer-keys`.
+
+Repeated identical blinded messages return the original blinded signature without creating another row. A different blinded message after redemption is rejected. One active issuance remains per registration and scope.
+
+GET `/api/v1/public/issuance-status/:issuanceId` reports ACTIVE, REVOKED, or EXPIRED for the internal issuance id (not the unlinkable credential). GET `/api/v1/public/scopes/:scopeId/revocations` lists revoked issuance ids. Neither includes owner, unit, registration id, public key, or revocation reason. A later ballot service cannot match a presented credential to those ids using stored issuer data.
+
+Administrative revoke and reissue still work on the entitlement. They prevent a new activation and mark the issuance REVOKED. They do **not** make the previously unblinded mathematical signature fail verification. Cryptographic invalidation of outstanding credentials requires waiting for `expiresAt` or rotating the issuer key / `ISSUER_KEY_VERSION`.
+
+Blinding, unblinding, replay, and issuer-key matching are covered by `npm test` and `npm run test:integration`. Manual checks are the administrative UI only.
+
+Passed manual tests:
+
+- Create a scope with issuer key version `dev-2026-01`. Advance it from DRAFT through REGISTRATION_OPEN to ACTIVATION_OPEN.
+- Create an eligible registration, generate an activation QR, download the PNG or PDF, and confirm secure delivery. The screen must not show owner, unit, or email on the QR/PDF.
+- After an issuance exists for that record, the dashboard shows credential version and ACTIVE without a public key or credential UUID.
+- Revoke with a reason from the same record. Status becomes revoked. Reissue with a reason and confirm the replacement QR delivery screen. Reissuing the original credential again is rejected.
+
+Known limitations:
+
+- Experimental prototype. Partially-blind RSA is an IRTF draft, not a finished IETF standard.
+- Unique voting weights can still distinguish a small number of entitlements in public metadata.
+- Per-credential cryptographic revocation is not available without storing the final credential identifier.

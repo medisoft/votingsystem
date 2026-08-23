@@ -1,51 +1,68 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 
-export const CREDENTIAL_SCHEMA_VERSION = 1;
+export const CREDENTIAL_SCHEMA_VERSION = 2;
 export const CREDENTIAL_PUBLIC_KEY_ALGORITHM = 'Ed25519';
+export const BLIND_CREDENTIAL_PROTOCOL = 'RSAPBSSA-SHA384-PSS-Randomized';
 export const ED25519_PUBLIC_KEY_BYTES = 32;
 export const CLIENT_NONCE_MIN_BYTES = 16;
 
-export interface CredentialPayload {
+export interface PublicMetadata {
   schemaVersion: number;
-  credentialId: string;
+  protocol: string;
   scopeId: string;
-  publicKey: string;
-  publicKeyAlgorithm: string;
   weight: string;
   credentialVersion: number;
-  issuedAt: string;
   expiresAt: string;
   issuer: string;
+  keyVersion: string;
+}
+
+export interface CredentialCommitment {
+  credentialId: string;
+  publicKey: string;
+  publicKeyAlgorithm: string;
 }
 
 /**
- * Serializes a credential payload with a fixed field order for Ed25519 signing.
+ * Serializes issuer-chosen public metadata with a fixed field order.
  *
- * @param payload - Version 1 credential fields.
- * @returns Canonical JSON used as the signed message.
+ * @param metadata - Attributes bound into the partially-blind signature.
+ * @returns Canonical JSON used as the `info` parameter.
  */
-export function canonicalizeCredentialPayload(
-  payload: CredentialPayload,
+export function canonicalizePublicMetadata(metadata: PublicMetadata): string {
+  return JSON.stringify({
+    schemaVersion: metadata.schemaVersion,
+    protocol: metadata.protocol,
+    scopeId: metadata.scopeId,
+    weight: metadata.weight,
+    credentialVersion: metadata.credentialVersion,
+    expiresAt: metadata.expiresAt,
+    issuer: metadata.issuer,
+    keyVersion: metadata.keyVersion,
+  });
+}
+
+/**
+ * Serializes the client commitment that the issuer never sees.
+ *
+ * @param commitment - Credential identifier and voter public key.
+ * @returns Canonical JSON prepared and blinded by the client.
+ */
+export function canonicalizeCredentialCommitment(
+  commitment: CredentialCommitment,
 ): string {
   return JSON.stringify({
-    schemaVersion: payload.schemaVersion,
-    credentialId: payload.credentialId,
-    scopeId: payload.scopeId,
-    publicKey: payload.publicKey,
-    publicKeyAlgorithm: payload.publicKeyAlgorithm,
-    weight: payload.weight,
-    credentialVersion: payload.credentialVersion,
-    issuedAt: payload.issuedAt,
-    expiresAt: payload.expiresAt,
-    issuer: payload.issuer,
+    credentialId: commitment.credentialId,
+    publicKey: commitment.publicKey,
+    publicKeyAlgorithm: commitment.publicKeyAlgorithm,
   });
 }
 
 /**
  * Decodes a raw 32-byte Ed25519 public key from canonical base64url.
  *
- * @param encoded - Base64url public key from the activation request.
+ * @param encoded - Base64url public key from the client commitment.
  * @returns The 32-byte public key, or null when the encoding is invalid.
  */
 export function parseEd25519PublicKey(encoded: string): Buffer | null {
@@ -54,16 +71,6 @@ export function parseEd25519PublicKey(encoded: string): Buffer | null {
   if (bytes.length !== ED25519_PUBLIC_KEY_BYTES) return null;
   if (bytes.toString('base64url') !== encoded) return null;
   return bytes;
-}
-
-/**
- * SHA-256 fingerprint of a voter public key for storage and audit metadata.
- *
- * @param publicKeyRaw - Raw 32-byte Ed25519 public key.
- * @returns Lowercase 64-character hexadecimal digest.
- */
-export function fingerprintPublicKey(publicKeyRaw: Buffer): string {
-  return createHash('sha256').update(publicKeyRaw).digest('hex');
 }
 
 /**
@@ -100,8 +107,8 @@ export function generateClientNonce(): string {
   return randomBytes(CLIENT_NONCE_MIN_BYTES).toString('base64url');
 }
 
-export interface RevokedCredentialEntry {
-  credentialId: string;
+export interface RevokedIssuanceEntry {
+  issuanceId: string;
   credentialVersion: number;
   revokedAt: string;
 }
@@ -111,13 +118,17 @@ export interface RevocationListPayload {
   scopeId: string;
   generatedAt: string;
   issuer: string;
-  revoked: RevokedCredentialEntry[];
+  protocol: string;
+  revoked: RevokedIssuanceEntry[];
 }
 
 /**
- * Serializes a revocation list with a fixed field order for Ed25519 signing.
+ * Serializes a revocation list with a fixed field order for RSA-PSS signing.
  *
- * @param payload - Public revoked-credential identifiers for one voting scope.
+ * Entries identify issuance records, not the unlinkable credential. A later
+ * ballot service cannot match a presented credential to these identifiers.
+ *
+ * @param payload - Public revoked-issuance identifiers for one voting scope.
  * @returns Canonical JSON used as the signed message.
  */
 export function canonicalizeRevocationList(
@@ -128,8 +139,9 @@ export function canonicalizeRevocationList(
     scopeId: payload.scopeId,
     generatedAt: payload.generatedAt,
     issuer: payload.issuer,
+    protocol: payload.protocol,
     revoked: payload.revoked.map((entry) => ({
-      credentialId: entry.credentialId,
+      issuanceId: entry.issuanceId,
       credentialVersion: entry.credentialVersion,
       revokedAt: entry.revokedAt,
     })),
@@ -137,20 +149,20 @@ export function canonicalizeRevocationList(
 }
 
 /**
- * Public credential validity for ballot services, with no registration identity.
+ * Public issuance validity for operators, with no voter public key.
  */
 export type PublicCredentialStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
 
 /**
- * Maps a stored credential to a public status response.
+ * Maps a stored issuance record to a public status response.
  *
  * @param record - Issued credential fields needed for validity.
  * @param now - Instant used to treat unrevoked expired credentials as expired.
- * @returns Status fields that do not include voter identity.
+ * @returns Status fields that do not include voter identity or the final credential.
  */
 export function publicCredentialStatus(
   record: {
-    credentialId: string;
+    id: string;
     credentialVersion: number;
     status: 'ACTIVE' | 'REVOKED';
     expiresAt: Date;
@@ -159,7 +171,7 @@ export function publicCredentialStatus(
   },
   now: Date,
 ): {
-  credentialId: string;
+  issuanceId: string;
   status: PublicCredentialStatus;
   credentialVersion: number;
   expiresAt: string;
@@ -170,7 +182,7 @@ export function publicCredentialStatus(
   const status: PublicCredentialStatus =
     record.status === 'REVOKED' ? 'REVOKED' : expired ? 'EXPIRED' : 'ACTIVE';
   return {
-    credentialId: record.credentialId,
+    issuanceId: record.id,
     status,
     credentialVersion: record.credentialVersion,
     expiresAt: record.expiresAt.toISOString(),

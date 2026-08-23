@@ -2,88 +2,116 @@ import { generateKeyPairSync } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import {
-  canonicalizeCredentialPayload,
+  blindCommitment,
+  blindSignCommitment,
+  bytesToBase64url,
+  hashBlindedMessage,
+  parseFixedBytes,
+  unblindSignature,
+  verifyBlindCredential,
+} from '../src/blind-rsa.js';
+import {
+  BLIND_CREDENTIAL_PROTOCOL,
+  canonicalizeCredentialCommitment,
+  canonicalizePublicMetadata,
   canonicalizeRevocationList,
-  fingerprintPublicKey,
   formatVotingWeight,
   generateClientNonce,
   isValidClientNonce,
   parseEd25519PublicKey,
   publicCredentialStatus,
-  type CredentialPayload,
+  type CredentialCommitment,
+  type PublicMetadata,
 } from '../src/credentials.js';
 import {
   createIssuer,
-  generateIssuerKeyMaterial,
   signCanonical,
   verifyCanonical,
 } from '../src/issuer-keys.js';
+import { testConfig } from './test-config.js';
 
-const payload = (
-  overrides: Partial<CredentialPayload> = {},
-): CredentialPayload => ({
-  schemaVersion: 1,
-  credentialId: '11111111-1111-4111-8111-111111111111',
+const metadata = (overrides: Partial<PublicMetadata> = {}): PublicMetadata => ({
+  schemaVersion: 2,
+  protocol: BLIND_CREDENTIAL_PROTOCOL,
   scopeId: '22222222-2222-4222-8222-222222222222',
-  publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-  publicKeyAlgorithm: 'Ed25519',
   weight: '1.0000',
   credentialVersion: 1,
-  issuedAt: '2026-07-14T18:00:00.000Z',
   expiresAt: '2026-08-31T23:59:59.000Z',
   issuer: 'condominium-registration-service',
+  keyVersion: 'test-2026-01',
   ...overrides,
 });
 
-describe('credential cryptography', () => {
-  it('canonicalizes payloads with a stable field order', () => {
-    const canonical = canonicalizeCredentialPayload(payload());
-    expect(canonical).toBe(
-      '{"schemaVersion":1,"credentialId":"11111111-1111-4111-8111-111111111111","scopeId":"22222222-2222-4222-8222-222222222222","publicKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","publicKeyAlgorithm":"Ed25519","weight":"1.0000","credentialVersion":1,"issuedAt":"2026-07-14T18:00:00.000Z","expiresAt":"2026-08-31T23:59:59.000Z","issuer":"condominium-registration-service"}',
+const commitment = (
+  overrides: Partial<CredentialCommitment> = {},
+): CredentialCommitment => ({
+  credentialId: '11111111-1111-4111-8111-111111111111',
+  publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  publicKeyAlgorithm: 'Ed25519',
+  ...overrides,
+});
+
+describe('blind credential cryptography', () => {
+  it('canonicalizes public metadata and hidden commitments', () => {
+    expect(canonicalizePublicMetadata(metadata())).toBe(
+      '{"schemaVersion":2,"protocol":"RSAPBSSA-SHA384-PSS-Randomized","scopeId":"22222222-2222-4222-8222-222222222222","weight":"1.0000","credentialVersion":1,"expiresAt":"2026-08-31T23:59:59.000Z","issuer":"condominium-registration-service","keyVersion":"test-2026-01"}',
     );
-    expect(canonical).toBe(
-      canonicalizeCredentialPayload(
-        payload({ issuer: 'condominium-registration-service' }),
-      ),
+    expect(canonicalizeCredentialCommitment(commitment())).toBe(
+      '{"credentialId":"11111111-1111-4111-8111-111111111111","publicKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","publicKeyAlgorithm":"Ed25519"}',
     );
   });
 
-  it('signs canonical payloads so an independent verifier can check them', () => {
-    const material = generateIssuerKeyMaterial();
-    const issuer = createIssuer({
-      ISSUER_PRIVATE_KEY: material.privateKeyPkcs8DerBase64url,
-      ISSUER_KEY_VERSION: 'test-2026-01',
-      ISSUER_ID: 'condominium-registration-service',
-    });
-    expect(issuer.publicKeyRawBase64url).toBe(material.publicKeyRawBase64url);
-    const canonical = canonicalizeCredentialPayload(payload());
-    const signature = signCanonical(canonical, issuer.privateKey);
-    expect(signature).toMatch(/^[A-Za-z0-9_-]{86}$/);
+  it('blinds, signs, unblinds, and verifies against the issuer public key', async () => {
+    const issuer = await createIssuer(testConfig());
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const voterKey = Buffer.from(
+      publicKey.export({ type: 'spki', format: 'der' }),
+    )
+      .subarray(-32)
+      .toString('base64url');
+    const hidden = commitment({ publicKey: voterKey });
+    const publicInfo = metadata();
+    const blinded = await blindCommitment(issuer.publicKey, hidden, publicInfo);
+    expect(blinded.blindedMsg).toHaveLength(256);
+    const blindedSignature = await blindSignCommitment(
+      issuer.privateKey,
+      blinded.blindedMsg,
+      publicInfo,
+    );
+    const signature = await unblindSignature(
+      issuer.publicKey,
+      blinded.preparedMsg,
+      publicInfo,
+      blindedSignature,
+      blinded.inv,
+    );
     expect(
-      verifyCanonical(
-        canonical,
+      await verifyBlindCredential(
+        issuer.publicKey,
         signature,
-        Buffer.from(issuer.publicKeyRawBase64url, 'base64url'),
+        blinded.preparedMsg,
+        publicInfo,
       ),
     ).toBe(true);
     expect(
-      verifyCanonical(
-        canonicalizeCredentialPayload(payload({ weight: '2.0000' })),
+      await verifyBlindCredential(
+        issuer.publicKey,
         signature,
-        Buffer.from(issuer.publicKeyRawBase64url, 'base64url'),
+        blinded.preparedMsg,
+        metadata({ weight: '2.0000' }),
       ),
     ).toBe(false);
-    const other = generateIssuerKeyMaterial();
-    expect(
-      verifyCanonical(
-        canonical,
-        signature,
-        Buffer.from(other.publicKeyRawBase64url, 'base64url'),
-      ),
-    ).toBe(false);
-    expect(JSON.stringify({ canonical, signature })).not.toContain(
-      material.privateKeyPkcs8DerBase64url,
+    expect(hashBlindedMessage(blinded.blindedMsg)).not.toBe(
+      hashBlindedMessage(signature),
     );
+    expect(hashBlindedMessage(blinded.blindedMsg)).not.toBe(
+      hashBlindedMessage(blinded.preparedMsg),
+    );
+    expect(bytesToBase64url(blinded.blindedMsg)).not.toContain(voterKey);
+    expect(bytesToBase64url(blindedSignature)).not.toContain(voterKey);
+    expect(
+      parseFixedBytes(bytesToBase64url(blinded.blindedMsg), 256),
+    ).toHaveLength(256);
   });
 
   it('accepts canonical 32-byte Ed25519 public keys and rejects other encodings', () => {
@@ -94,7 +122,6 @@ describe('credential cryptography', () => {
     const parsed = parseEd25519PublicKey(raw);
     expect(parsed).toHaveLength(32);
     expect(parsed?.toString('base64url')).toBe(raw);
-    expect(fingerprintPublicKey(parsed!)).toMatch(/^[0-9a-f]{64}$/);
     expect(parseEd25519PublicKey('not-a-key')).toBeNull();
     expect(parseEd25519PublicKey(raw.slice(0, 42) + '+')).toBeNull();
   });
@@ -105,28 +132,34 @@ describe('credential cryptography', () => {
     expect(isValidClientNonce('short')).toBe(false);
   });
 
-  it('canonicalizes revocation lists and maps public credential status', () => {
+  it('canonicalizes revocation lists of issuance ids and maps public status', async () => {
+    const issuer = await createIssuer(testConfig());
     const canonical = canonicalizeRevocationList({
-      schemaVersion: 1,
+      schemaVersion: 2,
       scopeId: '22222222-2222-4222-8222-222222222222',
       generatedAt: '2026-07-14T18:00:00.000Z',
       issuer: 'condominium-registration-service',
+      protocol: BLIND_CREDENTIAL_PROTOCOL,
       revoked: [
         {
-          credentialId: '11111111-1111-4111-8111-111111111111',
+          issuanceId: '11111111-1111-4111-8111-111111111111',
           credentialVersion: 1,
           revokedAt: '2026-07-15T12:00:00.000Z',
         },
       ],
     });
     expect(canonical).toBe(
-      '{"schemaVersion":1,"scopeId":"22222222-2222-4222-8222-222222222222","generatedAt":"2026-07-14T18:00:00.000Z","issuer":"condominium-registration-service","revoked":[{"credentialId":"11111111-1111-4111-8111-111111111111","credentialVersion":1,"revokedAt":"2026-07-15T12:00:00.000Z"}]}',
+      '{"schemaVersion":2,"scopeId":"22222222-2222-4222-8222-222222222222","generatedAt":"2026-07-14T18:00:00.000Z","issuer":"condominium-registration-service","protocol":"RSAPBSSA-SHA384-PSS-Randomized","revoked":[{"issuanceId":"11111111-1111-4111-8111-111111111111","credentialVersion":1,"revokedAt":"2026-07-15T12:00:00.000Z"}]}',
+    );
+    const signature = await signCanonical(canonical, issuer.privateKey);
+    expect(await verifyCanonical(canonical, signature, issuer.publicKey)).toBe(
+      true,
     );
     const now = new Date('2026-07-16T00:00:00.000Z');
     expect(
       publicCredentialStatus(
         {
-          credentialId: '11111111-1111-4111-8111-111111111111',
+          id: '11111111-1111-4111-8111-111111111111',
           credentialVersion: 1,
           status: 'ACTIVE',
           expiresAt: new Date('2026-08-31T23:59:59.000Z'),
@@ -135,11 +168,16 @@ describe('credential cryptography', () => {
         },
         now,
       ),
-    ).toMatchObject({ status: 'ACTIVE', replaced: false, revokedAt: null });
+    ).toMatchObject({
+      issuanceId: '11111111-1111-4111-8111-111111111111',
+      status: 'ACTIVE',
+      replaced: false,
+      revokedAt: null,
+    });
     expect(
       publicCredentialStatus(
         {
-          credentialId: '11111111-1111-4111-8111-111111111111',
+          id: '11111111-1111-4111-8111-111111111111',
           credentialVersion: 1,
           status: 'REVOKED',
           expiresAt: new Date('2026-08-31T23:59:59.000Z'),
@@ -152,7 +190,7 @@ describe('credential cryptography', () => {
     expect(
       publicCredentialStatus(
         {
-          credentialId: '11111111-1111-4111-8111-111111111111',
+          id: '11111111-1111-4111-8111-111111111111',
           credentialVersion: 1,
           status: 'ACTIVE',
           expiresAt: new Date('2026-07-15T00:00:00.000Z'),

@@ -15,9 +15,11 @@
     "test:integration": "vitest run --fileParallelism false test/auth.integration.test.ts test/audit.integration.test.ts",
     "audit:verify": "tsx src/audit-verify.ts",
     "audit:retain": "tsx src/audit-retain.ts",
-    "db:grant-roles": "tsx src/grant-roles.ts"
+    "db:grant-roles": "tsx src/grant-roles.ts",
+    "issuer:generate": "tsx src/generate-issuer-rsa.ts"
   },
   "dependencies": {
+    "@cloudflare/blindrsa-ts": "^0.4.6",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.1",
     "@fastify/helmet": "^13.1.1",

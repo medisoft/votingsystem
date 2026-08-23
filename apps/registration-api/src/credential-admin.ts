@@ -32,7 +32,6 @@ function fail(error: string, status: number): LifecycleError {
 
 export const publicIssuedCredential = (credential: {
   id: string;
-  credentialId: string;
   votingScopeId: string;
   status: IssuedCredentialStatus;
   credentialVersion: number;
@@ -40,11 +39,9 @@ export const publicIssuedCredential = (credential: {
   expiresAt: Date;
   revokedAt: Date | null;
   revocationReason: string | null;
-  publicKeyFingerprint: string;
   replacedByCredentialId: string | null;
 }) => ({
   id: credential.id,
-  credentialId: credential.credentialId,
   votingScopeId: credential.votingScopeId,
   status: credential.status,
   credentialVersion: credential.credentialVersion,
@@ -52,7 +49,6 @@ export const publicIssuedCredential = (credential: {
   expiresAt: credential.expiresAt,
   revokedAt: credential.revokedAt,
   revocationReason: credential.revocationReason,
-  publicKeyFingerprint: credential.publicKeyFingerprint,
   replacedByCredentialId: credential.replacedByCredentialId,
 });
 
@@ -208,9 +204,8 @@ export async function markCredentialRevoked(
     targetId: revoked.id,
     sourceIp: actor.sourceIp,
     metadata: {
-      credentialId: revoked.credentialId,
       votingScopeId: revoked.votingScopeId,
-      publicKeyFingerprint: revoked.publicKeyFingerprint,
+      credentialVersion: revoked.credentialVersion,
       reason,
     },
   });
@@ -259,7 +254,6 @@ async function lockCredentialContext(
   const [credential] = await tx.$queryRaw<
     Array<{
       id: string;
-      credentialId: string;
       registrationRecordId: string;
       votingScopeId: string;
       status: IssuedCredentialStatus;
@@ -268,13 +262,12 @@ async function lockCredentialContext(
       expiresAt: Date;
       revokedAt: Date | null;
       revocationReason: string | null;
-      publicKeyFingerprint: string;
       replacedByCredentialId: string | null;
     }>
   >(Prisma.sql`
-    SELECT "id", "credentialId", "registrationRecordId", "votingScopeId",
+    SELECT "id", "registrationRecordId", "votingScopeId",
            "status", "credentialVersion", "issuedAt", "expiresAt", "revokedAt",
-           "revocationReason", "publicKeyFingerprint", "replacedByCredentialId"
+           "revocationReason", "replacedByCredentialId"
     FROM "IssuedCredential"
     WHERE "id" = ${seed.id}::uuid
     FOR UPDATE
@@ -450,9 +443,7 @@ export async function reissueCredential(
         targetId: credential.id,
         sourceIp: actor.sourceIp,
         metadata: {
-          credentialId: credential.credentialId,
           votingScopeId: credential.votingScopeId,
-          publicKeyFingerprint: credential.publicKeyFingerprint,
           replacementActivationTokenId: token.id,
           nextCredentialVersion: credential.credentialVersion + 1,
           reason: input.reason,

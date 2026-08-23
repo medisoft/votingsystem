@@ -38,6 +38,7 @@ describe('sensitive log redaction', () => {
         'req.body.password',
         'req.body.activationToken',
         'req.body.publicKey',
+        'req.body.blindedMessage',
         'req.body.clientNonce',
       ]),
     );

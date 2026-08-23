@@ -1,49 +1,47 @@
-import {
-  createPrivateKey,
-  createPublicKey,
-  generateKeyPairSync,
-  sign,
-  verify,
-  type KeyObject,
-} from 'node:crypto';
+import { createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto';
+import { RSA_MODULUS_BITS, generateBlindRsaKeyPair } from './blind-rsa.js';
 
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+export const ISSUER_ALGORITHM = 'RSAPBSSA-SHA384-PSS-Randomized';
+export const ISSUER_PROTOCOL_SPEC = 'draft-amjad-cfrg-partially-blind-rsa-02';
 
 export interface IssuerKeyMaterial {
   privateKeyPkcs8DerBase64url: string;
-  publicKeyRawBase64url: string;
+  publicKeyJwk: JsonWebKey;
 }
 
 export interface Issuer {
   keyVersion: string;
   issuer: string;
-  publicKeyRawBase64url: string;
-  privateKey: KeyObject;
+  algorithm: typeof ISSUER_ALGORITHM;
+  protocol: typeof ISSUER_PROTOCOL_SPEC;
+  modulusLength: number;
+  publicKeyJwk: JsonWebKey;
+  publicKey: CryptoKey;
+  privateKey: CryptoKey;
 }
 
 /**
- * Creates a new Ed25519 issuer key pair for tests and local key generation.
+ * Converts PKCS8 DER base64url into PEM for secret files.
  *
- * @returns PKCS8 DER private key and 32-byte public key, both base64url-encoded.
+ * @param derBase64url - PKCS8 DER encoded as base64url.
+ * @returns PEM text with a PRIVATE KEY header.
  */
-export function generateIssuerKeyMaterial(): IssuerKeyMaterial {
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-  const spki = publicKey.export({ type: 'spki', format: 'der' });
-  return {
-    privateKeyPkcs8DerBase64url: privateKey
-      .export({ type: 'pkcs8', format: 'der' })
-      .toString('base64url'),
-    publicKeyRawBase64url: spki.subarray(-32).toString('base64url'),
-  };
+export function pkcs8DerToPem(derBase64url: string): string {
+  const body = Buffer.from(derBase64url, 'base64url')
+    .toString('base64')
+    .match(/.{1,64}/g)
+    ?.join('\n');
+  if (!body) throw new Error('Issuer private key is empty');
+  return `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
 }
 
 /**
- * Loads an Ed25519 private key from PKCS8 PEM or base64url-encoded PKCS8 DER.
+ * Loads an RSA private key from PKCS8 PEM or base64url-encoded PKCS8 DER.
  *
  * @param material - PEM text or base64url PKCS8 DER bytes.
- * @returns A Node.js Ed25519 private KeyObject.
+ * @returns A Node.js RSA private KeyObject with modulus length at least 2048.
  */
-export function parseEd25519PrivateKey(material: string): KeyObject {
+export function parseRsaPrivateKey(material: string): KeyObject {
   const trimmed = material.trim();
   const key = trimmed.includes('BEGIN PRIVATE KEY')
     ? createPrivateKey(trimmed)
@@ -52,88 +50,147 @@ export function parseEd25519PrivateKey(material: string): KeyObject {
         format: 'der',
         type: 'pkcs8',
       });
-  if (key.asymmetricKeyType !== 'ed25519')
-    throw new Error('Issuer private key must be Ed25519');
+  if (key.asymmetricKeyType !== 'rsa')
+    throw new Error('Issuer private key must be RSA');
+  const modulusLength = key.asymmetricKeyDetails?.modulusLength;
+  if (!modulusLength || modulusLength < RSA_MODULUS_BITS)
+    throw new Error(`Issuer RSA modulus must be at least ${RSA_MODULUS_BITS}`);
   return key;
 }
 
 /**
- * Extracts the raw 32-byte Ed25519 public key from a private key.
+ * Creates a new RSA-2048 issuer key pair with safe primes.
  *
- * @param privateKey - Ed25519 private KeyObject.
- * @returns The 32-byte public key.
+ * @returns PKCS8 DER private key (base64url) and the matching public JWK.
  */
-export function ed25519PublicKeyRaw(privateKey: KeyObject): Buffer {
-  const spki = Buffer.from(
+export async function generateIssuerKeyMaterial(): Promise<IssuerKeyMaterial> {
+  const { privateKey, publicKey } = await generateBlindRsaKeyPair();
+  const pkcs8 = Buffer.from(await crypto.subtle.exportKey('pkcs8', privateKey));
+  return {
+    privateKeyPkcs8DerBase64url: pkcs8.toString('base64url'),
+    publicKeyJwk: await crypto.subtle.exportKey('jwk', publicKey),
+  };
+}
+
+/**
+ * Imports extractable WebCrypto RSA-PSS keys used by the blind-signature suite.
+ *
+ * @param privateKey - Node RSA private KeyObject.
+ * @returns Extractable private and public CryptoKeys.
+ */
+async function importPssKeyPair(privateKey: KeyObject): Promise<{
+  privateKey: CryptoKey;
+  publicKey: CryptoKey;
+}> {
+  const pkcs8 = new Uint8Array(
+    privateKey.export({ type: 'pkcs8', format: 'der' }),
+  );
+  const spki = new Uint8Array(
     createPublicKey(privateKey).export({
       type: 'spki',
       format: 'der',
     }),
   );
-  return spki.subarray(-32);
-}
-
-/**
- * Builds the in-process issuer used to sign credentials.
- *
- * @param input - Key version, issuer identifier, and private-key material.
- * @returns Signer plus the published public key and version metadata.
- */
-export function createIssuer(input: {
-  ISSUER_PRIVATE_KEY: string;
-  ISSUER_KEY_VERSION: string;
-  ISSUER_ID: string;
-}): Issuer {
-  const privateKey = parseEd25519PrivateKey(input.ISSUER_PRIVATE_KEY);
+  const algorithm = { name: 'RSA-PSS', hash: 'SHA-384' } as const;
   return {
-    keyVersion: input.ISSUER_KEY_VERSION,
-    issuer: input.ISSUER_ID,
-    publicKeyRawBase64url:
-      ed25519PublicKeyRaw(privateKey).toString('base64url'),
-    privateKey,
+    privateKey: await crypto.subtle.importKey('pkcs8', pkcs8, algorithm, true, [
+      'sign',
+    ]),
+    publicKey: await crypto.subtle.importKey('spki', spki, algorithm, true, [
+      'verify',
+    ]),
   };
 }
 
 /**
- * Signs canonical UTF-8 bytes with Ed25519.
+ * Imports a published issuer public JWK for client unblinding and verification.
  *
- * @param canonical - Canonical credential JSON.
- * @param privateKey - Issuer Ed25519 private key.
- * @returns Base64url signature (64 bytes, 86 characters).
+ * @param jwk - RSA public JWK from GET /api/v1/public/issuer-keys.
+ * @returns Extractable RSA-PSS public CryptoKey.
  */
-export function signCanonical(
-  canonical: string,
-  privateKey: KeyObject,
-): string {
-  return sign(null, Buffer.from(canonical, 'utf8'), privateKey).toString(
-    'base64url',
+export async function importIssuerPublicJwk(
+  jwk: JsonWebKey,
+): Promise<CryptoKey> {
+  if (!jwk.n || !jwk.e) throw new Error('Issuer public JWK is missing n or e');
+  return crypto.subtle.importKey(
+    'jwk',
+    { kty: 'RSA', n: jwk.n, e: jwk.e, ext: true, alg: 'PS384' },
+    { name: 'RSA-PSS', hash: 'SHA-384' },
+    true,
+    ['verify'],
   );
 }
 
 /**
- * Verifies an Ed25519 signature over canonical UTF-8 bytes.
+ * Builds the in-process issuer used to blind-sign credentials.
  *
- * @param canonical - Canonical credential JSON that was signed.
- * @param signature - Base64url signature.
- * @param publicKeyRaw - Raw 32-byte Ed25519 public key.
- * @returns Whether the signature is valid for the payload and key.
+ * @param input - Key version, issuer identifier, and private-key material.
+ * @returns Signer plus the published public JWK and protocol metadata.
  */
-export function verifyCanonical(
+export async function createIssuer(input: {
+  ISSUER_PRIVATE_KEY: string;
+  ISSUER_KEY_VERSION: string;
+  ISSUER_ID: string;
+}): Promise<Issuer> {
+  const nodeKey = parseRsaPrivateKey(input.ISSUER_PRIVATE_KEY);
+  const keys = await importPssKeyPair(nodeKey);
+  const publicKeyJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
+  return {
+    keyVersion: input.ISSUER_KEY_VERSION,
+    issuer: input.ISSUER_ID,
+    algorithm: ISSUER_ALGORITHM,
+    protocol: ISSUER_PROTOCOL_SPEC,
+    modulusLength:
+      nodeKey.asymmetricKeyDetails?.modulusLength ?? RSA_MODULUS_BITS,
+    publicKeyJwk: {
+      kty: 'RSA',
+      alg: 'PS384',
+      ...(publicKeyJwk.n ? { n: publicKeyJwk.n } : {}),
+      ...(publicKeyJwk.e ? { e: publicKeyJwk.e } : {}),
+    },
+    publicKey: keys.publicKey,
+    privateKey: keys.privateKey,
+  };
+}
+
+/**
+ * Signs canonical UTF-8 bytes with RSA-PSS SHA-384 (non-blind, for lists).
+ *
+ * @param canonical - Canonical JSON.
+ * @param privateKey - Issuer RSA-PSS private key.
+ * @returns Base64url signature.
+ */
+export async function signCanonical(
+  canonical: string,
+  privateKey: CryptoKey,
+): Promise<string> {
+  const signature = await crypto.subtle.sign(
+    { name: 'RSA-PSS', saltLength: 48 },
+    privateKey,
+    Buffer.from(canonical, 'utf8'),
+  );
+  return Buffer.from(signature).toString('base64url');
+}
+
+/**
+ * Verifies an RSA-PSS SHA-384 signature over canonical UTF-8 bytes.
+ *
+ * @param canonical - Canonical JSON that was signed.
+ * @param signature - Base64url signature.
+ * @param publicKey - Issuer RSA-PSS public key.
+ * @returns Whether the signature is valid.
+ */
+export async function verifyCanonical(
   canonical: string,
   signature: string,
-  publicKeyRaw: Buffer,
-): boolean {
-  const publicKey = createPublicKey({
-    key: Buffer.concat([ED25519_SPKI_PREFIX, publicKeyRaw]),
-    format: 'der',
-    type: 'spki',
-  });
+  publicKey: CryptoKey,
+): Promise<boolean> {
   try {
-    return verify(
-      null,
-      Buffer.from(canonical, 'utf8'),
+    return await crypto.subtle.verify(
+      { name: 'RSA-PSS', saltLength: 48 },
       publicKey,
       Buffer.from(signature, 'base64url'),
+      Buffer.from(canonical, 'utf8'),
     );
   } catch {
     return false;

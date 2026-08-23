@@ -54,7 +54,7 @@ export async function buildApp(
   app.get('/api/v1', async () => ({ service: 'registration-api', version: 1 }));
   registerAuthRoutes(app, config.NODE_ENV === 'production');
   registerActivationTokenRoutes(app);
-  registerCredentialRoutes(app, createIssuer(config));
+  registerCredentialRoutes(app, await createIssuer(config));
   registerScopeRoutes(app);
   registerImportRoutes(app);
   registerRegistrationRoutes(app);

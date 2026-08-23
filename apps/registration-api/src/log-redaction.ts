@@ -10,6 +10,8 @@ export const SENSITIVE_LOG_FIELDS = [
   'activationToken',
   'rawToken',
   'publicKey',
+  'blindedMessage',
+  'blindedSignature',
   'clientNonce',
   'privateKey',
   'ISSUER_PRIVATE_KEY',
@@ -36,6 +38,7 @@ export const LOG_REDACT_PATHS: string[] = [
   'req.body.activationToken',
   'req.body.rawToken',
   'req.body.publicKey',
+  'req.body.blindedMessage',
   'req.body.clientNonce',
   'req.body.privateKey',
 ];
