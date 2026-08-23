@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { ActivationTokenStatus, AdminRole, Prisma } from '@prisma/client';
 import argon2 from 'argon2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1520,11 +1520,7 @@ INVALID-ONLY,
 
     const fixture = await openActivation('CRED-API-1');
     const publicKey = voterPublicKey();
-    const first = await redeemBlindActivation(
-      app,
-      fixture.rawToken,
-      publicKey,
-    );
+    const first = await redeemBlindActivation(app, fixture.rawToken, publicKey);
     expect(first.issued.statusCode).toBe(201);
     expect(first.verified).toBe(true);
     const credential = first.issued.json().credential as {
@@ -2294,5 +2290,108 @@ INVALID-ONLY,
         'VOTING_SCOPE_ROLLED_BACK',
       ]),
     );
+  });
+
+  it('exposes public scope status without personal data', async () => {
+    const now = Date.now();
+    const open = await prisma.votingScope.create({
+      data: {
+        name: 'Public status open',
+        status: 'ACTIVATION_OPEN',
+        startsAt: new Date(now + 3_600_000),
+        endsAt: new Date(now + 7_200_000),
+        activationStartsAt: new Date(now - 3_600_000),
+        activationEndsAt: new Date(now + 5_400_000),
+        credentialExpiresAt: new Date(now + 86_400_000),
+        issuerKeyVersion: config.ISSUER_KEY_VERSION,
+      },
+    });
+    const draft = await prisma.votingScope.create({
+      data: {
+        name: 'Public status draft',
+        status: 'DRAFT',
+        startsAt: new Date(now + 3_600_000),
+        endsAt: new Date(now + 7_200_000),
+        activationStartsAt: new Date(now - 3_600_000),
+        activationEndsAt: new Date(now + 5_400_000),
+        credentialExpiresAt: new Date(now + 86_400_000),
+        issuerKeyVersion: config.ISSUER_KEY_VERSION,
+      },
+    });
+    const openStatus = await app.inject({
+      url: `/api/v1/public/scopes/${open.id}/status`,
+    });
+    expect(openStatus.statusCode).toBe(200);
+    const body = openStatus.json() as Record<string, unknown>;
+    expect(body).toEqual({
+      scopeId: open.id,
+      status: 'ACTIVATION_OPEN',
+      activationStartsAt: open.activationStartsAt.toISOString(),
+      activationEndsAt: open.activationEndsAt.toISOString(),
+      startsAt: open.startsAt.toISOString(),
+      endsAt: open.endsAt.toISOString(),
+      credentialExpiresAt: open.credentialExpiresAt.toISOString(),
+      acceptsActivation: true,
+      issuerKeyVersion: config.ISSUER_KEY_VERSION,
+    });
+    expect(JSON.stringify(body)).not.toMatch(/owner|unit|email|token/i);
+    const draftStatus = await app.inject({
+      url: `/api/v1/public/scopes/${draft.id}/status`,
+    });
+    expect(draftStatus.statusCode).toBe(200);
+    expect(draftStatus.json().acceptsActivation).toBe(false);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/public/scopes/11111111-1111-4111-8111-111111111111/status',
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it('stores SQL-like registration fields without executing them', async () => {
+    const administrator = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+    });
+    const rawToken = randomBytes(32).toString('base64url');
+    await prisma.adminSession.create({
+      data: {
+        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        adminId: administrator.id,
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
+      },
+    });
+    const cookie = `registration_session=${rawToken}`;
+    const unitNumber = 'A-101\'; DROP TABLE "RegistrationRecord"; --';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations',
+      headers: { cookie },
+      payload: {
+        unitNumber,
+        ownerName: 'Owner\'; DROP TABLE "AdminUser"; --',
+        email: 'sql-like@example.com',
+        votingWeight: '1.0000',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().record.unitNumber).toBe(unitNumber.toUpperCase());
+    expect(await prisma.registrationRecord.count()).toBeGreaterThan(0);
+    expect(await prisma.adminUser.count()).toBeGreaterThan(0);
+    const listed = await app.inject({
+      url:
+        '/api/v1/admin/registrations?search=' +
+        encodeURIComponent(unitNumber.slice(0, 5)),
+      headers: { cookie },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(
+      listed
+        .json()
+        .records.some(
+          (record: { unitNumber: string }) =>
+            record.unitNumber === unitNumber.toUpperCase(),
+        ),
+    ).toBe(true);
   });
 });

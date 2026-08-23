@@ -61,8 +61,71 @@ const privilegedRollback: Partial<
 > = {
   [VotingScopeStatus.CLOSED]: VotingScopeStatus.VOTING_ACTIVE,
 };
+const publicScopeParams = z.object({ scopeId: z.string().uuid() });
+
+/**
+ * Whether the scope currently accepts public credential activation.
+ *
+ * Matches the window checks in activation (status, activation interval,
+ * credential expiry). Issuer-key matching is a client/config concern and
+ * is not part of this public flag.
+ *
+ * @param scope - Stored voting-scope status and timestamps.
+ * @param now - Instant used for window comparison.
+ */
+export function scopeAcceptsActivation(
+  scope: {
+    status: VotingScopeStatus;
+    activationStartsAt: Date;
+    activationEndsAt: Date;
+    credentialExpiresAt: Date;
+  },
+  now: Date,
+): boolean {
+  return (
+    scope.status === VotingScopeStatus.ACTIVATION_OPEN &&
+    now >= scope.activationStartsAt &&
+    now < scope.activationEndsAt &&
+    scope.credentialExpiresAt > now
+  );
+}
 
 export function registerScopeRoutes(app: FastifyInstance) {
+  app.get(
+    '/api/v1/public/scopes/:scopeId/status',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const params = publicScopeParams.safeParse(request.params);
+      if (!params.success)
+        return reply.code(400).send({ code: 'INVALID_SCOPE_ID' });
+      const scope = await app.prisma.votingScope.findUnique({
+        where: { id: params.data.scopeId },
+        select: {
+          id: true,
+          status: true,
+          startsAt: true,
+          endsAt: true,
+          activationStartsAt: true,
+          activationEndsAt: true,
+          credentialExpiresAt: true,
+          issuerKeyVersion: true,
+        },
+      });
+      if (!scope) return reply.code(404).send({ code: 'SCOPE_NOT_FOUND' });
+      const now = new Date();
+      return {
+        scopeId: scope.id,
+        status: scope.status,
+        activationStartsAt: scope.activationStartsAt.toISOString(),
+        activationEndsAt: scope.activationEndsAt.toISOString(),
+        startsAt: scope.startsAt.toISOString(),
+        endsAt: scope.endsAt.toISOString(),
+        credentialExpiresAt: scope.credentialExpiresAt.toISOString(),
+        acceptsActivation: scopeAcceptsActivation(scope, now),
+        issuerKeyVersion: scope.issuerKeyVersion,
+      };
+    },
+  );
   app.get(
     '/api/v1/admin/scopes',
     { preHandler: app.authenticateAdmin },

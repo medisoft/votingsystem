@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 11: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, and privacy hardening.
+Registration and Credential Issuance Service through Stage 12: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, and a public voting-scope status endpoint.
 
 ## Requirements
 
@@ -222,3 +222,11 @@ Known limitations:
 - Experimental prototype. Partially-blind RSA is an IRTF draft, not a finished IETF standard.
 - Unique voting weights can still distinguish a small number of entitlements in public metadata.
 - Per-credential cryptographic revocation is not available without storing the final credential identifier.
+
+## Stage 12 public scope status and request limits
+
+`GET /api/v1/public/scopes/:scopeId/status` returns whether a voting scope currently accepts activation. The payload includes status, activation and voting windows, credential expiry, issuer key version, and `acceptsActivation`. It does not include owner, unit, email, token, or credential identifiers. Unknown ids return 404; malformed ids return 400.
+
+`acceptsActivation` is true only when the scope is `ACTIVATION_OPEN`, the current time is inside `[activationStartsAt, activationEndsAt)`, and `credentialExpiresAt` is still in the future. Issuer-key matching remains a client check against `issuerKeyVersion`.
+
+JSON request bodies are limited to 64 KiB except CSV import routes, which keep the existing 2 MiB CSV / expanded JSON cap. Automated tests cover malformed JSON, oversized bodies, SQL-like registration fields stored as data, and the public status payload.

@@ -16,12 +16,17 @@ import { registerScopeRoutes } from './scopes.js';
 import { registerRegistrationRoutes } from './registrations.js';
 import { registerReportRoutes } from './report-routes.js';
 import { registerSecurityHeaders } from './security-headers.js';
+
+/** Default JSON body cap. CSV import routes override this with MAX_IMPORT_JSON_BYTES. */
+export const MAX_JSON_BODY_BYTES = 64 * 1024;
+
 export async function buildApp(
   config: AppConfig,
   checkDb?: () => Promise<void>,
 ): Promise<FastifyInstance> {
   setActiveSourceIpMode(config.SOURCE_IP_MODE);
   const app = Fastify({
+    bodyLimit: MAX_JSON_BODY_BYTES,
     logger:
       config.NODE_ENV === 'test'
         ? false

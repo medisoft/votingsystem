@@ -399,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–9 are complete. Stage 5 adds previewed, validated, partially successful, idempotent CSV registration imports with downloadable row-level error reports. Stage 6 covers opaque activation tokens and QR/PDF delivery. Stage 7 issues independently verifiable prototype credentials. Stage 8 adds administrative revocation and reissuance, public credential status, and a signed per-scope revocation list. Stage 9 adds hash-chained audit verification, aggregate operational reports, and audited CSV exports.
+Registration Service Stages 1–11 are complete for the condominium prototype. Stage 10 adds privacy hardening (log redaction, CSRF/CSP, split database roles). Stage 11 replaces direct Ed25519 credential signing with experimental partially-blind RSA issuance. Stage 12 adds the public voting-scope status endpoint, a global JSON body limit, and automated tests for malformed JSON, oversized bodies, and SQL-like inputs. Stage 11 issuance remains experimental, not production-ready.
 
 The MVP will prioritize:
 
