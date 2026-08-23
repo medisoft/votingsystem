@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 12.1: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, a public voting-scope status endpoint, and a committed OpenAPI document.
+Registration and Credential Issuance Service through Stage 13: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, and administrator account editing.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 ## Known limitations
 
 - Voting scopes, voter records, CSV imports, activation tokens, prototype credential issuance, revocation, and reissuance are implemented. Anonymous voting remains for later stages.
-- Account editing is deferred. The dashboard lists recent audit events with type and date filters; it is not a full forensic viewer.
+- The dashboard lists recent audit events with type and date filters; it is not a full forensic viewer.
 
 ## Stage 3 voting scopes
 
@@ -238,3 +238,14 @@ JSON request bodies are limited to 64 KiB except CSV import routes, which keep t
 The API uses @fastify/swagger 9.8.1 in static mode instead of a custom YAML parser. It is the official Fastify 5 OpenAPI plugin (MIT, actively maintained) and loads the committed file rather than inventing paths from missing JSON schemas. Version 9.8.1 targets Fastify 5. At selection time, `npm audit --omit=dev` on the API workspace reported no known production vulnerabilities for this package. Maintenance and license evidence: https://www.npmjs.com/package/@fastify/swagger and https://github.com/fastify/fastify-swagger.
 
 A contract test walks the live `/api/v1` route table (excluding HEAD/OPTIONS) and fails if a path or method is missing from the YAML. Example payloads omit passwords, TOTP secrets, and raw activation tokens.
+
+## Stage 13 administrator account editing
+
+System administrators can `PATCH /api/v1/admin/users/:id` to change `role` or `status`, or set `unlock: true` to clear lockout counters. Deactivating an account revokes its sessions. The last remaining ACTIVE `SYSTEM_ADMIN` cannot be deactivated or demoted (`LAST_SYSTEM_ADMIN`). Operators and auditors receive 403. Updates are audited as `ADMIN_USER_UPDATED` without passwords or TOTP material.
+
+The administrator list can change role, deactivate or reactivate, and unlock a locked account.
+
+Pending manual tests:
+
+- Create an operator, change the role to auditor, deactivate, and confirm that account cannot sign in.
+- Confirm the seed `admin@example.com` cannot deactivate itself when it is the only system administrator.

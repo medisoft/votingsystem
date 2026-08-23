@@ -1088,3 +1088,87 @@ it('shows operational reports and CSV downloads for auditors', async () => {
     screen.getByRole('link', { name: 'Download credential status' }),
   ).toBeInTheDocument();
 });
+
+it('edits administrator role and deactivates an account', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/users/') && init?.method === 'PATCH')
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '2',
+              email: 'operator@example.com',
+              role: 'AUDITOR',
+              status: 'INACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/users'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            users: [
+              {
+                id: '2',
+                email: 'operator@example.com',
+                role: 'REGISTRATION_OPERATOR',
+                status: 'ACTIVE',
+                totpEnabled: false,
+                lockedUntil: null,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText('operator@example.com')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+  expect(await screen.findByText('Administrator updated.')).toBeInTheDocument();
+});

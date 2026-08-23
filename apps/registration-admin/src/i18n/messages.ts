@@ -610,6 +610,42 @@ export const messages = {
     en: 'Create user',
     es: 'Crear usuario',
   },
+  saveRole: {
+    description: 'Button that saves a changed administrator role.',
+    en: 'Save role',
+    es: 'Guardar rol',
+  },
+  deactivateUser: {
+    description: 'Button that deactivates an administrator account.',
+    en: 'Deactivate',
+    es: 'Desactivar',
+  },
+  reactivateUser: {
+    description: 'Button that reactivates an administrator account.',
+    en: 'Reactivate',
+    es: 'Reactivar',
+  },
+  unlockUser: {
+    description: 'Button that clears a lockout after failed logins.',
+    en: 'Unlock',
+    es: 'Desbloquear',
+  },
+  administratorUpdated: {
+    description: 'Success message after editing an administrator.',
+    en: 'Administrator updated.',
+    es: 'Administrador actualizado.',
+  },
+  lastSystemAdmin: {
+    description:
+      'Error when deactivating or demoting the last active system administrator.',
+    en: 'The last system administrator cannot be removed.',
+    es: 'No se puede quitar al último administrador del sistema.',
+  },
+  userUpdateFailed: {
+    description: 'Error when an administrator account cannot be updated.',
+    en: 'Unable to update the administrator.',
+    es: 'No fue posible actualizar al administrador.',
+  },
   roleRegistrationOperator: {
     description: 'Display name for the registration operator role.',
     en: 'Registration operator',

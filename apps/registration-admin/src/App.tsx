@@ -52,6 +52,7 @@ interface User {
   role: Role;
   status: string;
   totpEnabled: boolean;
+  lockedUntil: string | null;
   createdAt: string;
 }
 type ScopeStatus =
@@ -886,6 +887,33 @@ function Dashboard({ user }: { user: User }) {
         error.message === 'EMAIL_EXISTS'
           ? t('emailExists')
           : t('userCreateFailed'),
+      ),
+  });
+  const updateUser = useMutation({
+    mutationFn: (body: {
+      id: string;
+      role?: Role;
+      status?: 'ACTIVE' | 'INACTIVE';
+      unlock?: true;
+    }) =>
+      api(`/api/v1/admin/users/${body.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...(body.role ? { role: body.role } : {}),
+          ...(body.status ? { status: body.status } : {}),
+          ...(body.unlock ? { unlock: true } : {}),
+        }),
+      }),
+    onSuccess: () => {
+      setMessage(t('administratorUpdated'));
+      void client.invalidateQueries({ queryKey: ['users'] });
+      void client.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (error) =>
+      setMessage(
+        error.message === 'LAST_SYSTEM_ADMIN'
+          ? t('lastSystemAdmin')
+          : t('userUpdateFailed'),
       ),
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -2096,6 +2124,65 @@ function Dashboard({ user }: { user: User }) {
                   <span>
                     {t(roleMessage[item.role])} · {item.status}
                   </span>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      setMessage('');
+                      updateUser.mutate({
+                        id: item.id,
+                        role: String(
+                          new FormData(event.currentTarget).get('role'),
+                        ) as Role,
+                      });
+                    }}
+                  >
+                    <label>
+                      {t('role')}
+                      <select name="role" defaultValue={item.role}>
+                        <option value="REGISTRATION_OPERATOR">
+                          {t('roleRegistrationOperator')}
+                        </option>
+                        <option value="AUDITOR">{t('roleAuditor')}</option>
+                        <option value="SYSTEM_ADMIN">
+                          {t('roleSystemAdmin')}
+                        </option>
+                      </select>
+                    </label>
+                    <button disabled={updateUser.isPending}>
+                      {t('saveRole')}
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={updateUser.isPending}
+                    onClick={() => {
+                      setMessage('');
+                      updateUser.mutate({
+                        id: item.id,
+                        status:
+                          item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                      });
+                    }}
+                  >
+                    {item.status === 'ACTIVE'
+                      ? t('deactivateUser')
+                      : t('reactivateUser')}
+                  </button>
+                  {item.lockedUntil &&
+                    new Date(item.lockedUntil) > new Date() && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={updateUser.isPending}
+                        onClick={() => {
+                          setMessage('');
+                          updateUser.mutate({ id: item.id, unlock: true });
+                        }}
+                      >
+                        {t('unlockUser')}
+                      </button>
+                    )}
                 </li>
               ))}
             </ul>

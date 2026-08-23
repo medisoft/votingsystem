@@ -399,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–12.1 are complete for the condominium prototype. Stage 10 adds privacy hardening (log redaction, CSRF/CSP, split database roles). Stage 11 replaces direct Ed25519 credential signing with experimental partially-blind RSA issuance. Stage 12 adds the public voting-scope status endpoint, a global JSON body limit, and automated tests for malformed JSON, oversized bodies, and SQL-like inputs. Stage 12.1 serves a committed OpenAPI 3.1 document at `GET /api/v1/openapi.json`. Stage 11 issuance remains experimental, not production-ready.
+Registration Service Stages 1–13 are complete for the condominium prototype. Stage 10 adds privacy hardening (log redaction, CSRF/CSP, split database roles). Stage 11 replaces direct Ed25519 credential signing with experimental partially-blind RSA issuance. Stage 12 adds the public voting-scope status endpoint and request-limit tests. Stage 12.1 serves a committed OpenAPI 3.1 document. Stage 13 adds administrator role, status, and unlock editing with a last-system-admin guard. Stage 11 issuance remains experimental, not production-ready.
 
 The MVP will prioritize:
 

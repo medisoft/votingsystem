@@ -27,6 +27,21 @@ const createAdminSchema = z.object({
   password: z.string().min(12).max(1024),
   role: z.enum(['SYSTEM_ADMIN', 'REGISTRATION_OPERATOR', 'AUDITOR']),
 });
+const patchAdminSchema = z
+  .object({
+    role: z
+      .enum(['SYSTEM_ADMIN', 'REGISTRATION_OPERATOR', 'AUDITOR'])
+      .optional(),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    unlock: z.literal(true).optional(),
+  })
+  .refine(
+    (value) =>
+      value.role !== undefined ||
+      value.status !== undefined ||
+      value.unlock === true,
+  );
+const userIdParams = z.object({ id: z.string().uuid() });
 const hashToken = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 const publicUser = (user: {
@@ -35,6 +50,7 @@ const publicUser = (user: {
   role: AdminRole;
   status: AdminStatus;
   totpEnabled: boolean;
+  lockedUntil: Date | null;
   createdAt: Date;
 }) => ({
   id: user.id,
@@ -42,6 +58,7 @@ const publicUser = (user: {
   role: user.role,
   status: user.status,
   totpEnabled: user.totpEnabled,
+  lockedUntil: user.lockedUntil?.toISOString() ?? null,
   createdAt: user.createdAt,
 });
 
@@ -67,6 +84,7 @@ declare module 'fastify' {
       role: AdminRole;
       status: AdminStatus;
       totpEnabled: boolean;
+      lockedUntil: Date | null;
       createdAt: Date;
     };
     sessionId?: string;
@@ -80,6 +98,25 @@ declare module 'fastify' {
  * @param adminId - Administrator whose failed-login counter is updated.
  * @param failedLoginCount - Current failure count before this attempt.
  */
+/**
+ * Whether an update would leave the system without an active system administrator.
+ *
+ * @param existing - Administrator being patched.
+ * @param nextRole - Role after the patch.
+ * @param nextStatus - Status after the patch.
+ */
+function dropsLastSystemAdmin(
+  existing: { role: AdminRole; status: AdminStatus },
+  nextRole: AdminRole,
+  nextStatus: AdminStatus,
+): boolean {
+  return (
+    existing.status === AdminStatus.ACTIVE &&
+    existing.role === 'SYSTEM_ADMIN' &&
+    (nextStatus === AdminStatus.INACTIVE || nextRole !== 'SYSTEM_ADMIN')
+  );
+}
+
 async function recordFailedLogin(
   app: FastifyInstance,
   adminId: string,
@@ -451,6 +488,66 @@ export function registerAuthRoutes(
         metadata: { role: user.role },
       });
       return reply.code(201).send({ user: publicUser(user) });
+    },
+  );
+  app.patch(
+    '/api/v1/admin/users/:id',
+    { preHandler: systemAdmin },
+    async (request, reply) => {
+      const params = userIdParams.safeParse(request.params);
+      const body = patchAdminSchema.safeParse(request.body);
+      if (!params.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_REQUEST' });
+      const patch = body.data;
+      const result = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.adminUser.findUnique({
+          where: { id: params.data.id },
+        });
+        if (!existing) return { error: 'USER_NOT_FOUND' as const, status: 404 };
+        const nextRole = patch.role ?? existing.role;
+        const nextStatus = patch.status ?? existing.status;
+        if (dropsLastSystemAdmin(existing, nextRole, nextStatus)) {
+          const others = await tx.adminUser.count({
+            where: {
+              id: { not: existing.id },
+              role: 'SYSTEM_ADMIN',
+              status: AdminStatus.ACTIVE,
+            },
+          });
+          if (others === 0)
+            return { error: 'LAST_SYSTEM_ADMIN' as const, status: 409 };
+        }
+        const updated = await tx.adminUser.update({
+          where: { id: existing.id },
+          data: {
+            ...(patch.role ? { role: patch.role } : {}),
+            ...(patch.status ? { status: patch.status } : {}),
+            ...(patch.unlock ? { failedLoginCount: 0, lockedUntil: null } : {}),
+          },
+        });
+        if (patch.status === AdminStatus.INACTIVE)
+          await tx.adminSession.updateMany({
+            where: { adminId: existing.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        return { updated };
+      });
+      if (!('updated' in result))
+        return reply.code(result.status).send({ code: result.error });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'ADMIN_USER_UPDATED',
+        targetType: 'AdminUser',
+        targetId: result.updated.id,
+        sourceIp: request.ip,
+        metadata: {
+          ...(patch.role ? { role: patch.role } : {}),
+          ...(patch.status ? { status: patch.status } : {}),
+          ...(patch.unlock ? { unlocked: true } : {}),
+        },
+      });
+      return { user: publicUser(result.updated) };
     },
   );
   app.get(

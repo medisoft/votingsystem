@@ -273,6 +273,32 @@ paths:
       responses:
         '201':
           description: Created administrator
+  /api/v1/admin/users/{id}:
+    patch:
+      tags: [users]
+      security:
+        - adminSession: []
+      summary: Update an administrator role, status, or lockout
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [SYSTEM_ADMIN, REGISTRATION_OPERATOR, AUDITOR]
+                status:
+                  type: string
+                  enum: [ACTIVE, INACTIVE]
+                unlock:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated administrator
   /api/v1/admin/audit-events:
     get:
       tags: [audit]

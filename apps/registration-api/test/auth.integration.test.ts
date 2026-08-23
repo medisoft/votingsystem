@@ -2394,4 +2394,127 @@ INVALID-ONLY,
         ),
     ).toBe(true);
   });
+
+  it('edits administrators, revokes deactivated sessions, and keeps a system admin', async () => {
+    const administrator = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+    });
+    const rawToken = randomBytes(32).toString('base64url');
+    await prisma.adminSession.create({
+      data: {
+        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        adminId: administrator.id,
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
+      },
+    });
+    const cookie = `registration_session=${rawToken}`;
+    const operator = await prisma.adminUser.create({
+      data: {
+        email: 'operator-edit@example.com',
+        passwordHash: await argon2.hash('operator-password', {
+          type: argon2.argon2id,
+        }),
+        role: AdminRole.REGISTRATION_OPERATOR,
+      },
+    });
+    const operatorToken = randomBytes(32).toString('base64url');
+    await prisma.adminSession.create({
+      data: {
+        tokenHash: createHash('sha256').update(operatorToken).digest('hex'),
+        adminId: operator.id,
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
+      },
+    });
+    const operatorCookie = `registration_session=${operatorToken}`;
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/me',
+          headers: { cookie: operatorCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const roleChange = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${operator.id}`,
+      headers: { cookie },
+      payload: { role: 'AUDITOR' },
+    });
+    expect(roleChange.statusCode).toBe(200);
+    expect(roleChange.json().user.role).toBe('AUDITOR');
+    const deactivated = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${operator.id}`,
+      headers: { cookie },
+      payload: { status: 'INACTIVE' },
+    });
+    expect(deactivated.statusCode).toBe(200);
+    expect(deactivated.json().user.status).toBe('INACTIVE');
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/admin/me',
+          headers: { cookie: operatorCookie },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/users/${administrator.id}`,
+          headers: { cookie },
+          payload: { status: 'INACTIVE' },
+        })
+      ).json(),
+    ).toEqual({ code: 'LAST_SYSTEM_ADMIN' });
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/users/${operator.id}`,
+          headers: { cookie: operatorCookie },
+          payload: { role: 'SYSTEM_ADMIN' },
+        })
+      ).statusCode,
+    ).toBe(401);
+    const auditor = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'auditor@example.com' },
+    });
+    const auditorToken = randomBytes(32).toString('base64url');
+    await prisma.adminSession.create({
+      data: {
+        tokenHash: createHash('sha256').update(auditorToken).digest('hex'),
+        adminId: auditor.id,
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
+      },
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/admin/users/${operator.id}`,
+          headers: { cookie: `registration_session=${auditorToken}` },
+          payload: { role: 'SYSTEM_ADMIN' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await prisma.adminUser.update({
+      where: { id: operator.id },
+      data: { lockedUntil: new Date(Date.now() + 15 * 60_000) },
+    });
+    const unlocked = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${operator.id}`,
+      headers: { cookie },
+      payload: { unlock: true },
+    });
+    expect(unlocked.statusCode).toBe(200);
+    expect(unlocked.json().user.lockedUntil).toBeNull();
+    expect(
+      await prisma.auditEvent.count({
+        where: { eventType: 'ADMIN_USER_UPDATED', targetId: operator.id },
+      }),
+    ).toBeGreaterThanOrEqual(2);
+  });
 });
