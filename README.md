@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 12: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, and a public voting-scope status endpoint.
+Registration and Credential Issuance Service through Stage 12.1: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, a public voting-scope status endpoint, and a committed OpenAPI document.
 
 ## Requirements
 
@@ -230,3 +230,11 @@ Known limitations:
 `acceptsActivation` is true only when the scope is `ACTIVATION_OPEN`, the current time is inside `[activationStartsAt, activationEndsAt)`, and `credentialExpiresAt` is still in the future. Issuer-key matching remains a client check against `issuerKeyVersion`.
 
 JSON request bodies are limited to 64 KiB except CSV import routes, which keep the existing 2 MiB CSV / expanded JSON cap. Automated tests cover malformed JSON, oversized bodies, SQL-like registration fields stored as data, and the public status payload.
+
+## Stage 12.1 OpenAPI
+
+`GET /api/v1/openapi.json` serves the committed OpenAPI 3.1 document at `apps/registration-api/openapi.yaml`. Route schemas stay in Zod; this stage does not generate the document from Fastify handlers.
+
+The API uses @fastify/swagger 9.8.1 in static mode instead of a custom YAML parser. It is the official Fastify 5 OpenAPI plugin (MIT, actively maintained) and loads the committed file rather than inventing paths from missing JSON schemas. Version 9.8.1 targets Fastify 5. At selection time, `npm audit --omit=dev` on the API workspace reported no known production vulnerabilities for this package. Maintenance and license evidence: https://www.npmjs.com/package/@fastify/swagger and https://github.com/fastify/fastify-swagger.
+
+A contract test walks the live `/api/v1` route table (excluding HEAD/OPTIONS) and fails if a path or method is missing from the YAML. Example payloads omit passwords, TOTP secrets, and raw activation tokens.

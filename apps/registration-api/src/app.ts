@@ -14,6 +14,7 @@ import databasePlugin from './plugins/database.js';
 import { registerImportRoutes } from './imports.js';
 import { registerScopeRoutes } from './scopes.js';
 import { registerRegistrationRoutes } from './registrations.js';
+import { registerOpenApi } from './openapi.js';
 import { registerReportRoutes } from './report-routes.js';
 import { registerSecurityHeaders } from './security-headers.js';
 
@@ -45,6 +46,7 @@ export async function buildApp(
     config.ADMIN_ORIGIN,
     config.CSRF_ORIGIN_CHECK,
   );
+  await registerOpenApi(app);
   app.get('/health/live', async () => ({ status: 'ok' }));
   app.get('/health/ready', async (_request, reply) => {
     try {

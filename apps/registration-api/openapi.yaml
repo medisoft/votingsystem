@@ -1,0 +1,571 @@
+openapi: 3.1.0
+info:
+  title: Registration and Credential Issuance API
+  version: '1'
+  description: >
+    Administrative registration, activation tokens, and experimental
+    partially-blind credential issuance. Example payloads omit passwords,
+    TOTP secrets, raw activation tokens, and private keys.
+servers:
+  - url: /
+tags:
+  - name: meta
+  - name: public
+  - name: auth
+  - name: users
+  - name: scopes
+  - name: registrations
+  - name: imports
+  - name: tokens
+  - name: credentials
+  - name: reports
+  - name: audit
+paths:
+  /api/v1:
+    get:
+      tags: [meta]
+      summary: Service identity
+      responses:
+        '200':
+          description: Service name and API version
+  /api/v1/openapi.json:
+    get:
+      tags: [meta]
+      summary: OpenAPI document
+      responses:
+        '200':
+          description: OpenAPI 3.1 document as JSON
+  /api/v1/public/issuer-keys:
+    get:
+      tags: [public]
+      summary: Published issuer public keys
+      responses:
+        '200':
+          description: Issuer public JWK list
+  /api/v1/public/activation-context:
+    post:
+      tags: [public]
+      summary: Activation public metadata for blinding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activationToken]
+              properties:
+                activationToken:
+                  type: string
+      responses:
+        '200':
+          description: Public metadata for the client blinding step
+  /api/v1/public/activate:
+    post:
+      tags: [public]
+      summary: Redeem an activation token with a blinded commitment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - activationToken
+                - protocol
+                - blindedMessage
+                - publicMetadata
+                - clientNonce
+              properties:
+                activationToken:
+                  type: string
+                protocol:
+                  type: string
+                blindedMessage:
+                  type: string
+                publicMetadata:
+                  type: object
+                clientNonce:
+                  type: string
+      responses:
+        '201':
+          description: Blinded signature for the client to unblind
+  /api/v1/public/issuance-status/{issuanceId}:
+    get:
+      tags: [public]
+      summary: Public issuance status
+      parameters:
+        - $ref: '#/components/parameters/issuanceId'
+      responses:
+        '200':
+          description: ACTIVE, REVOKED, or EXPIRED
+  /api/v1/public/scopes/{scopeId}/status:
+    get:
+      tags: [public]
+      summary: Whether a voting scope currently accepts activation
+      parameters:
+        - $ref: '#/components/parameters/scopeId'
+      responses:
+        '200':
+          description: Scope windows and acceptsActivation
+  /api/v1/public/scopes/{scopeId}/revocations:
+    get:
+      tags: [public]
+      summary: Signed revocation list of issuance ids
+      parameters:
+        - $ref: '#/components/parameters/scopeId'
+      responses:
+        '200':
+          description: Signed list of revoked issuance ids
+  /api/v1/admin/auth/login:
+    post:
+      tags: [auth]
+      summary: Administrator login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                totp:
+                  type: string
+      responses:
+        '200':
+          description: Session cookie set
+  /api/v1/admin/auth/logout:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: End the current session
+      responses:
+        '204':
+          description: Session revoked
+  /api/v1/admin/auth/refresh:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Rotate the session cookie
+      responses:
+        '200':
+          description: New session cookie
+  /api/v1/admin/auth/password:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Password updated
+  /api/v1/admin/auth/totp/setup:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Begin TOTP enrollment
+      responses:
+        '200':
+          description: otpauth URL and secret for confirmation
+  /api/v1/admin/auth/totp/confirm:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Confirm TOTP enrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [totp]
+              properties:
+                totp:
+                  type: string
+      responses:
+        '200':
+          description: TOTP enabled
+  /api/v1/admin/auth/totp/disable:
+    post:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Disable TOTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+                totp:
+                  type: string
+      responses:
+        '200':
+          description: TOTP disabled
+  /api/v1/admin/me:
+    get:
+      tags: [auth]
+      security:
+        - adminSession: []
+      summary: Current administrator
+      responses:
+        '200':
+          description: Public administrator profile
+  /api/v1/admin/users:
+    get:
+      tags: [users]
+      security:
+        - adminSession: []
+      summary: List administrators
+      responses:
+        '200':
+          description: Administrator accounts
+    post:
+      tags: [users]
+      security:
+        - adminSession: []
+      summary: Create an administrator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, role]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                role:
+                  type: string
+                  enum: [SYSTEM_ADMIN, REGISTRATION_OPERATOR, AUDITOR]
+      responses:
+        '201':
+          description: Created administrator
+  /api/v1/admin/audit-events:
+    get:
+      tags: [audit]
+      security:
+        - adminSession: []
+      summary: List audit events
+      responses:
+        '200':
+          description: Recent audit events
+  /api/v1/admin/scopes:
+    get:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: List voting scopes
+      responses:
+        '200':
+          description: Voting scopes
+    post:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: Create a voting scope
+      responses:
+        '201':
+          description: Created scope
+  /api/v1/admin/scopes/{id}:
+    get:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: Get a voting scope
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Voting scope
+    patch:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: Update a voting scope
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated scope
+  /api/v1/admin/scopes/{id}/transition:
+    post:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: Advance a voting-scope status
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Transitioned scope
+  /api/v1/admin/scopes/{id}/rollback:
+    post:
+      tags: [scopes]
+      security:
+        - adminSession: []
+      summary: Privileged rollback from CLOSED to VOTING_ACTIVE
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Rolled-back scope
+  /api/v1/admin/registrations:
+    get:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Search registration records
+      responses:
+        '200':
+          description: Registration records
+    post:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Create a registration record
+      responses:
+        '201':
+          description: Created record
+  /api/v1/admin/registrations/{id}:
+    get:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Get a registration record
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Registration record
+    patch:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Update a registration record
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated record
+    delete:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Soft-delete a registration record
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Soft-deleted record
+  /api/v1/admin/registrations/{id}/scopes/{scopeId}:
+    put:
+      tags: [registrations]
+      security:
+        - adminSession: []
+      summary: Set per-scope eligibility
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/scopeId'
+      responses:
+        '200':
+          description: Scope eligibility
+  /api/v1/admin/registrations/import/preview:
+    post:
+      tags: [imports]
+      security:
+        - adminSession: []
+      summary: Preview a registration CSV
+      responses:
+        '200':
+          description: Preview summary and row errors
+  /api/v1/admin/registrations/import:
+    post:
+      tags: [imports]
+      security:
+        - adminSession: []
+      summary: Commit a registration CSV
+      responses:
+        '201':
+          description: Import summary
+  /api/v1/admin/registration-imports/{id}/errors.csv:
+    get:
+      tags: [imports]
+      security:
+        - adminSession: []
+      summary: Download import error report
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: CSV error report without source field values
+  /api/v1/admin/registrations/{id}/scopes/{scopeId}/activation-token:
+    post:
+      tags: [tokens]
+      security:
+        - adminSession: []
+      summary: Generate or replace an activation token
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/scopeId'
+      responses:
+        '201':
+          description: One-time raw token in this response only
+  /api/v1/admin/activation-tokens/{id}/delivered:
+    post:
+      tags: [tokens]
+      security:
+        - adminSession: []
+      summary: Confirm secure delivery of an activation token
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Delivery recorded
+  /api/v1/admin/activation-tokens/{id}/revoke:
+    post:
+      tags: [tokens]
+      security:
+        - adminSession: []
+      summary: Revoke an active activation token
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Token revoked
+  /api/v1/admin/credentials/{id}/revoke:
+    post:
+      tags: [credentials]
+      security:
+        - adminSession: []
+      summary: Revoke an issued credential
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Credential revoked
+  /api/v1/admin/credentials/{id}/reissue:
+    post:
+      tags: [credentials]
+      security:
+        - adminSession: []
+      summary: Revoke and issue a replacement activation token
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '201':
+          description: Replacement one-time token
+  /api/v1/admin/reports/registration-summary:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Registration counts
+      responses:
+        '200':
+          description: Aggregate registration snapshot
+  /api/v1/admin/reports/activation-summary:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Activation-token counts
+      responses:
+        '200':
+          description: Aggregate token snapshot
+  /api/v1/admin/reports/credential-status:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Credential counts
+      responses:
+        '200':
+          description: Aggregate credential snapshot
+  /api/v1/admin/reports/registration-summary.csv:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Registration summary CSV
+      responses:
+        '200':
+          description: CSV download
+  /api/v1/admin/reports/activation-summary.csv:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Activation summary CSV
+      responses:
+        '200':
+          description: CSV download
+  /api/v1/admin/reports/credential-status.csv:
+    get:
+      tags: [reports]
+      security:
+        - adminSession: []
+      summary: Credential status CSV
+      responses:
+        '200':
+          description: CSV download
+components:
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    scopeId:
+      name: scopeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    issuanceId:
+      name: issuanceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: registration_session
