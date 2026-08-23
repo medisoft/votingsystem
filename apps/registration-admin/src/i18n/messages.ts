@@ -423,6 +423,31 @@ export const messages = {
     en: 'Recent audit events',
     es: 'Eventos de auditoría recientes',
   },
+  mainNavigation: {
+    description: 'Accessible name for the primary administrative navigation.',
+    en: 'Main',
+    es: 'Principal',
+  },
+  navHome: {
+    description: 'Navigation link to the dashboard reports page.',
+    en: 'Dashboard',
+    es: 'Panel',
+  },
+  language: {
+    description: 'Label for the administrative interface language selector.',
+    en: 'Language',
+    es: 'Idioma',
+  },
+  languageEnglish: {
+    description: 'English option in the language selector.',
+    en: 'English',
+    es: 'Inglés',
+  },
+  languageSpanish: {
+    description: 'Spanish option in the language selector.',
+    en: 'Spanish',
+    es: 'Español',
+  },
   operationalReports: {
     description:
       'Heading for aggregate registration, activation, and credential reports.',

@@ -76,6 +76,41 @@ button {
 button:disabled {
   opacity: 0.6;
 }
+:focus-visible {
+  outline: 3px solid #0b6e99;
+  outline-offset: 2px;
+}
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem 0;
+  border-top: 1px solid #dce4e9;
+  border-bottom: 1px solid #dce4e9;
+}
+.app-nav a {
+  color: #174d69;
+  font-weight: 700;
+  text-decoration: none;
+}
+.app-nav a:hover,
+.app-nav a:focus-visible {
+  text-decoration: underline;
+}
+.app-nav a.active {
+  color: #0b3d52;
+  text-decoration: underline;
+}
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+}
+.language-select {
+  min-width: 10rem;
+}
 .small {
   margin-top: 0.5rem;
   padding: 0.4rem;

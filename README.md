@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 14: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, administrator account editing, and an audit-export / issuer-key administrative view.
+Registration and Credential Issuance Service through Stage 15: Fastify API, React administrative shell with routed pages and a language selector, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, and administrator account editing.
 
 ## Requirements
 
@@ -80,7 +80,7 @@ The administrative interface supports English and Spanish. It checks the browser
 
 User-visible text is maintained in `apps/registration-admin/src/i18n/messages.ts`. Every message contains an English description of its purpose plus its English and Spanish text, so translators can update the catalog with a simple file edit. Source identifiers, API error codes, and developer-facing documentation remain in English.
 
-Known limitation: users cannot override the detected language from inside the interface yet; a persistent language selector can be added in a later stage.
+The interface language follows the browser when no override is stored. A Language selector (English/Spanish) persists the choice in `localStorage` under `registration-admin-locale`. English remains the fallback.
 
 ## Stage 4.2 test database isolation
 
@@ -260,3 +260,22 @@ Pending manual tests:
 
 - Sign in as an auditor: confirm records hide owner contact fields, issuer keys are visible, and generate-token controls are absent.
 - As an administrator, filter audit events by a registration id and download the CSV. Confirm it contains that id and no owner names.
+
+## Stage 15 administrative routes, language, and accessibility
+
+The administrative UI uses React Router. After sign-in, the primary navigation opens:
+
+- `/` dashboard reports and issuer keys
+- `/registrations` and `/registrations/:id` records, eligibility, QR delivery
+- `/import` CSV import
+- `/scopes` voting scopes
+- `/audit` audit filters and CSV download
+- `/account` password and TOTP
+- `/administrators` account editing (system administrators)
+
+Unauthenticated visits redirect to `/login`. Refreshing `/registrations/:id` with a valid session reopens that record. Focusable controls use a visible `:focus-visible` outline. Eligibility and status remain labeled in text, not color alone.
+
+Pending manual tests:
+
+- Desktop and tablet widths on login, dashboard, registration detail, and QR delivery.
+- Switch language EN ↔ ES, reload, and confirm dates and role labels stay in the selected language.

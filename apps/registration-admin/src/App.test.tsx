@@ -9,6 +9,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
+import { MemoryRouter } from 'react-router';
 import { App } from './App';
 
 vi.mock('qrcode', () => ({
@@ -38,6 +39,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  window.localStorage.removeItem('registration-admin-locale');
 });
 it('shows login when there is no session', async () => {
   vi.stubGlobal(
@@ -49,13 +51,15 @@ it('shows login when there is no session', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
     await screen.findByRole('heading', { name: 'Sign in' }),
@@ -99,12 +103,14 @@ it('does not send a JSON content type for bodyless logout', async () => {
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
-    await screen.findByRole('heading', { name: 'Import CSV' }),
+    await screen.findByRole('heading', { name: 'Registration dashboard' }),
   ).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
   await waitFor(() =>
@@ -167,11 +173,13 @@ it('shows operational failures to registration operators', async () => {
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
-  await screen.findByRole('heading', { name: 'Import CSV' });
+  await screen.findByRole('heading', { name: 'Voter records' });
   fireEvent.change(screen.getByLabelText('Unit'), {
     target: { value: 'A-1' },
   });
@@ -290,13 +298,15 @@ A-1,Owner
     },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/import']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   const fileInput = await screen.findByLabelText('CSV file');
   fireEvent.change(fileInput, { target: { files: [file] } });
@@ -417,13 +427,15 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
     },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/import']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   const fileInput = await screen.findByLabelText('CSV file');
   fireEvent.change(fileInput, { target: { files: [file] } });
@@ -578,9 +590,11 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   await screen.findByRole('heading', { name: 'Activation tokens' });
   fireEvent.click(
@@ -857,13 +871,15 @@ it('revokes and reissues an issued credential from the recovery form', async () 
   });
   vi.stubGlobal('fetch', fetchMock);
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(await screen.findByText(/Credential: Issued/)).toBeInTheDocument();
   expect(
@@ -906,13 +922,15 @@ it('asks for an authenticator code when login requires TOTP', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
     await screen.findByRole('heading', { name: 'Sign in' }),
@@ -963,13 +981,15 @@ it('lets a signed-in administrator change their password', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/account']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
     await screen.findByRole('heading', { name: 'Account security' }),
@@ -1066,13 +1086,15 @@ it('shows operational reports and CSV downloads for auditors', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
     await screen.findByRole('heading', { name: 'Operational reports' }),
@@ -1090,9 +1112,6 @@ it('shows operational reports and CSV downloads for auditors', async () => {
   expect(
     await screen.findByRole('heading', { name: 'Issuer keys' }),
   ).toBeInTheDocument();
-  expect(
-    screen.getByRole('link', { name: 'Download audit events' }),
-  ).toHaveAttribute('href', '/api/v1/admin/audit-events.csv');
 });
 
 it('hides registration contact fields from auditors', async () => {
@@ -1164,20 +1183,93 @@ it('hides registration contact fields from auditors', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(await screen.findByText('Protected record')).toBeInTheDocument();
   expect(screen.queryByText('No email')).not.toBeInTheDocument();
   expect(screen.queryByText('No phone')).not.toBeInTheDocument();
+});
+
+it('opens a registration from a deep link and keeps a language override', async () => {
+  window.localStorage.setItem('registration-admin-locale', 'es');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/registrations'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            records: [
+              {
+                id: 'rec-1',
+                unitNumber: 'A-101',
+                ownerName: 'Deep Link Owner',
+                votingWeight: '1.0000',
+                eligible: true,
+                status: 'ACTIVE',
+                version: 1,
+                scopeEligibilities: [],
+                activationTokens: [],
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/registrations/rec-1']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
   expect(
-    await screen.findByText(/Issuer key version: dev-2026-01/),
+    await screen.findByDisplayValue('Deep Link Owner'),
   ).toBeInTheDocument();
+  expect(document.documentElement.lang).toBe('es');
+  expect(screen.getByLabelText('Idioma')).toHaveValue('es');
+  window.localStorage.removeItem('registration-admin-locale');
 });
 
 it('edits administrator role and deactivates an account', async () => {
@@ -1251,13 +1343,15 @@ it('edits administrator role and deactivates an account', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/administrators']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(await screen.findByText('operator@example.com')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
