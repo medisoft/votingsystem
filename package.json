@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n api,admin \"npm run dev -w @voting/registration-api\" \"npm run dev -w @voting/registration-admin\"",
+    "dev:client": "npm run dev -w @voting/voting-client",
     "dev:infra": "docker compose up -d postgres",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
@@ -24,7 +25,7 @@
     "test:integration": "docker compose --profile test up -d --wait postgres-test && DATABASE_URL=postgresql://voting:voting@localhost:15433/registration_test?schema=public npm run db:migrate -w @voting/registration-api && DATABASE_URL=postgresql://voting:voting@localhost:15433/registration_test?schema=public ALLOW_DATABASE_RESET=true npm run test:integration -w @voting/registration-api",
     "audit:verify": "npm run audit:verify -w @voting/registration-api",
     "audit:retain": "npm run audit:retain -w @voting/registration-api",
-    "audit:deps": "npm audit --omit=dev --audit-level=critical --workspace=@voting/registration-api --workspace=@voting/registration-admin"
+    "audit:deps": "npm audit --omit=dev --audit-level=critical --workspace=@voting/registration-api --workspace=@voting/registration-admin --workspace=@voting/voting-client"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
