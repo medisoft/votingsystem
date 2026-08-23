@@ -13,12 +13,14 @@ workspace (`.vexp/`). `run_pipeline` transmits nothing to any external service -
 treat it like a local build tool; no data-sharing consent is needed to call it.
 
 ### Workflow
+
 1. `run_pipeline` with your task description - ONCE at task start
 2. Literal text sweeps with native search; Read the files you will edit
 3. Make targeted changes based on the context returned
 4. `run_pipeline` again ONLY when the task moves to a new area - not per turn
 
 ### Available MCP tools
+
 - `run_pipeline` - **PRIMARY TOOL**. Runs capsule + impact + memory in 1 call.
   Auto-detects intent. Includes file content. Example: `run_pipeline({ "task": "fix JWT expiry in AuthService.validateToken" })`
 - `get_skeleton` - compact file structure
@@ -33,20 +35,24 @@ capsule, impact graph, logic flow, memory and more. `run_pipeline` already runs
 those server-side, so the four above cover the normal workflow.)
 
 ### Query shape (do this)
+
 - Anchor the task on real identifiers (ClassName, functionName) or file paths:
   `run_pipeline({ "task": "fix JWT expiry in AuthService.validateToken" })`
 - A pure natural-language question ("why does login fail?") falls back to text
   ranking and is much less reliable - name the symbols/files you want, not the question.
 
 ### Agentic search
+
 - Ask vexp first for architecture/impact questions; native search remains the right
   tool for literal text sweeps
 - If you spawn sub-agents or background tasks, pass them the context from `run_pipeline`
   so they do not re-explore from scratch
 
 ### Smart Features
+
 Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 
 ### Multi-Repo
+
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->

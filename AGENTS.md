@@ -68,7 +68,6 @@ integration tests at the development database `registration` on port `15432`.
 - The suite must refuse to reset any database not named `registration_test`,
   even if `ALLOW_DATABASE_RESET` is set.
 
-
 ## Commits and General commands
 
 - When asked to create a commit, in the commit description, start with [Stage #] - Short Functionallity and then add the list of changes below.
@@ -98,12 +97,14 @@ Do not call multiple MCPs for the same information unless the first result is in
 - Use RTK for shell commands, git output, tests, builds, linters, and other verbose command output when RTK supports the command.
 
 ### Mandatory first step
+
 For any non-trivial task, the **first tool call** must be VEXP `run_pipeline`, unless the skip conditions below are clearly met.
 Do not start with a chain of grep / read / search.
 
 When exploring, understanding, debugging, or changing this repository, prefer MCP context tools over broad built-in file searches.
 
 ### VEXP first
+
 Use VEXP as the primary orientation and impact-analysis tool for non-trivial work:
 
 - implementation and refactoring
@@ -116,6 +117,7 @@ Use VEXP as the primary orientation and impact-analysis tool for non-trivial wor
 Start these tasks with one anchored `run_pipeline` call. Include file content and tests when they will help avoid follow-up discovery. Use the returned pivots, blast radius, and prior observations to guide targeted reads and edits.
 
 Skip the initial `run_pipeline` **only** when ALL of these are true:
+
 - the exact file(s) and symbol(s) to touch are already known
 - the change is mechanical / one-file
 - no impact analysis, dependents, or tests need checking
@@ -124,6 +126,7 @@ Skip the initial `run_pipeline` **only** when ALL of these are true:
 A named file or symbol alone is **not** a reason to skip VEXP when impact or cross-file context would still be useful.
 
 ### FastCTX
+
 Use FastCTX for:
 
 - locating files
@@ -136,6 +139,7 @@ Use FastCTX for:
 Prefer FastCTX over broad recursive reads or repeated built-in searches.
 
 #### Grep routing
+
 Send grep-style work to the cheapest tool that answers the question:
 
 - **FastCTX `grep`** for mechanical literal/regex sweeps: constants, log messages, config keys, symbol strings. Start with `files_with_matches`, `count`, or `summary`; use `content` only after the set is narrow.
@@ -145,6 +149,7 @@ Send grep-style work to the cheapest tool that answers the question:
 Do not duplicate the same grep across VEXP, FastCTX, and built-in search.
 
 ### CodeGraphContext
+
 Use CodeGraphContext when an exact interactive graph query is needed beyond the context returned by VEXP:
 
 - callers / callees
@@ -157,7 +162,8 @@ Use CodeGraphContext when an exact interactive graph query is needed beyond the 
 Use it after VEXP has identified the relevant symbols, or when a precise caller/callee query is the task itself.
 
 ### code-review-graph
-Use code-review-graph when the question is about a *git change*, not a named symbol or a text search:
+
+Use code-review-graph when the question is about a _git change_, not a named symbol or a text search:
 
 - reviewing uncommitted work, a branch, or a PR
 - blast radius of a diff (which functions, files, and tests the change hits)
@@ -176,6 +182,7 @@ Do **not** use code-review-graph for:
 Do not also re-derive the same blast radius from VEXP or CodeGraphContext after code-review-graph already returned it.
 
 ### Tool selection
+
 Prefer this order:
 
 1. VEXP `run_pipeline` for non-trivial orientation, context, impact, relevant tests, and grep that needs ranking or related-file context.
@@ -192,6 +199,7 @@ Avoid reading many files directly when MCP tools can first narrow the relevant c
 Do not duplicate the same discovery work across MCP servers. VEXP followed by targeted FastCTX reads is the normal implementation workflow. Add CodeGraphContext only when a more precise symbol-graph query is still needed. Use code-review-graph instead of those when the input is a diff to review.
 
 ### Command output (builds, tests, tools)
+
 Prefer silent or filtered commands that return only errors and warnings when the full log is not needed. Do not ingest compile progress. None of the context MCPs parse compiler output; token cost is the shell capture.
 
 - **Default:** run quiet (`-q`/`--quiet`/`--silent`) so the result is diagnostics plus pass/fail.
@@ -215,12 +223,14 @@ workspace (`.vexp/`). `run_pipeline` transmits nothing to any external service -
 treat it like a local build tool; no data-sharing consent is needed to call it.
 
 ### Workflow
+
 1. `run_pipeline` with your task description — **ONCE as the first tool call** at task start
 2. Literal text sweeps with FastCTX (or native search); then read only the files/ranges you will edit
 3. Make targeted changes based on the context returned
 4. `run_pipeline` again ONLY when the task moves to a new area - not per turn
 
 ### Available MCP tools
+
 - `run_pipeline` - **PRIMARY TOOL**. Runs capsule + impact + memory in 1 call.
   Auto-detects intent. Includes file content. Example: `run_pipeline({ "task": "fix JWT expiry in AuthService.validateToken" })`
 - `get_skeleton` - compact file structure
@@ -231,12 +241,14 @@ treat it like a local build tool; no data-sharing consent is needed to call it.
 - `expand_vexp_ref` - expand V-REF placeholders in v2 output
 
 ### Query shape (do this)
+
 - Anchor the task on real identifiers (ClassName, functionName) or file paths:
   `run_pipeline({ "task": "fix JWT expiry in AuthService.validateToken" })`
 - A pure natural-language question ("why does login fail?") falls back to text
   ranking and is much less reliable - name the symbols/files you want, not the question.
 
 ### Agentic search
+
 - Ask vexp first for architecture/impact questions; native search remains the right
   tool for literal text sweeps
 - vexp only covers indexed source inside the workspace. For runtime logs, build output
@@ -246,9 +258,11 @@ treat it like a local build tool; no data-sharing consent is needed to call it.
   so they do not re-explore from scratch
 
 ### Smart Features
+
 Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 
 ### Multi-Repo
+
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->
 

@@ -6,35 +6,40 @@ import { registerAuthRoutes } from './auth.js';
 import { registerActivationTokenRoutes } from './activation-token-routes.js';
 import { registerCredentialRoutes } from './credential-routes.js';
 import type { AppConfig } from './config.js';
+import { setActiveSourceIpMode } from './client-ip.js';
+import { registerCsrfOriginCheck } from './csrf.js';
 import { createIssuer } from './issuer-keys.js';
+import { LOG_REDACT_PATHS } from './log-redaction.js';
 import databasePlugin from './plugins/database.js';
 import { registerImportRoutes } from './imports.js';
 import { registerScopeRoutes } from './scopes.js';
 import { registerRegistrationRoutes } from './registrations.js';
 import { registerReportRoutes } from './report-routes.js';
+import { registerSecurityHeaders } from './security-headers.js';
 export async function buildApp(
   config: AppConfig,
   checkDb?: () => Promise<void>,
 ): Promise<FastifyInstance> {
+  setActiveSourceIpMode(config.SOURCE_IP_MODE);
   const app = Fastify({
     logger:
       config.NODE_ENV === 'test'
         ? false
         : {
             level: config.LOG_LEVEL,
-            redact: [
-              'req.headers.authorization',
-              'req.headers.cookie',
-              'req.body.activationToken',
-              'req.body.publicKey',
-              'req.body.clientNonce',
-            ],
+            redact: { paths: LOG_REDACT_PATHS, censor: '[Redacted]' },
           },
   });
   await app.register(databasePlugin);
+  await registerSecurityHeaders(app, config.NODE_ENV === 'production');
   await app.register(cors, { origin: config.ADMIN_ORIGIN, credentials: true });
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
+  await registerCsrfOriginCheck(
+    app,
+    config.ADMIN_ORIGIN,
+    config.CSRF_ORIGIN_CHECK,
+  );
   app.get('/health/live', async () => ({ status: 'ok' }));
   app.get('/health/ready', async (_request, reply) => {
     try {

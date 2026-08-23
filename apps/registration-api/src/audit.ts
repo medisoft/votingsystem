@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ActorType, Prisma, type PrismaClient } from '@prisma/client';
+import { getActiveSourceIpMode, retainClientIp } from './client-ip.js';
 
 export const AUDIT_CHAIN_LOCK = 2026082209;
 
@@ -188,6 +189,7 @@ export async function appendAudit(prisma: AuditDb, input: AuditInput) {
     const occurredAt = new Date();
     const metadata = (input.metadata ?? {}) as Prisma.InputJsonObject;
     const previousHash = previous?.eventHash ?? null;
+    const sourceIp = retainClientIp(input.sourceIp, getActiveSourceIpMode());
     const eventHash = hashAuditEvent({
       id,
       occurredAt,
@@ -196,7 +198,7 @@ export async function appendAudit(prisma: AuditDb, input: AuditInput) {
       eventType: input.eventType,
       targetType: input.targetType,
       targetId: input.targetId ?? null,
-      sourceIp: input.sourceIp ?? null,
+      sourceIp,
       metadata,
       previousHash,
     });
@@ -209,7 +211,7 @@ export async function appendAudit(prisma: AuditDb, input: AuditInput) {
         eventType: input.eventType,
         targetType: input.targetType,
         targetId: input.targetId ?? null,
-        sourceIp: input.sourceIp ?? null,
+        sourceIp,
         metadata,
         previousHash,
         eventHash,

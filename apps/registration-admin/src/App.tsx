@@ -248,6 +248,7 @@ function localizeImportError(
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
+  headers.set('x-requested-with', 'XMLHttpRequest');
   if (init?.body && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
@@ -1076,30 +1077,30 @@ function Dashboard({ user }: { user: User }) {
         <ul>
           <li>
             {t('eligibleRecords')}:{' '}
-            {registrationReport.data?.report.eligibleRecords ?? '—'}
+            {registrationReport.data?.report?.eligibleRecords ?? '—'}
           </li>
           <li>
             {t('notYetActivated')}:{' '}
-            {registrationReport.data?.report.notYetActivated ?? '—'}
+            {registrationReport.data?.report?.notYetActivated ?? '—'}
           </li>
           <li>
             {t('tokensGenerated')}:{' '}
-            {activationReport.data?.report.generated ?? '—'}
+            {activationReport.data?.report?.generated ?? '—'}
           </li>
           <li>
             {t('tokensRedeemed')}:{' '}
-            {activationReport.data?.report.redeemed ?? '—'}
+            {activationReport.data?.report?.redeemed ?? '—'}
           </li>
           <li>
             {t('credentialsIssued')}:{' '}
-            {credentialReport.data?.report.issued ?? '—'}
+            {credentialReport.data?.report?.issued ?? '—'}
           </li>
           <li>
             {t('credentialsRevoked')}:{' '}
-            {credentialReport.data?.report.revoked ?? '—'}
+            {credentialReport.data?.report?.revoked ?? '—'}
           </li>
         </ul>
-        {registrationReport.data?.report.byScope?.length ? (
+        {registrationReport.data?.report?.byScope?.length ? (
           <ul>
             {registrationReport.data.report.byScope.map((row) => (
               <li key={row.scopeId}>

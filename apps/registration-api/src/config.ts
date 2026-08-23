@@ -14,6 +14,20 @@ const envSchema = z
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
+    AUDIT_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(2555),
+    APPLICATION_LOG_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(30),
+    SOURCE_IP_MODE: z.enum(['truncated', 'omitted']).default('truncated'),
+    CSRF_ORIGIN_CHECK: z.enum(['true', 'false']).optional(),
     ISSUER_PRIVATE_KEY: z.string().min(1).optional(),
     ISSUER_PRIVATE_KEY_FILE: z.string().min(1).optional(),
     ISSUER_KEY_VERSION: z.string().trim().min(1).max(100),
@@ -40,6 +54,10 @@ export type AppConfig = {
   DATABASE_URL: string;
   ADMIN_ORIGIN: string;
   LOG_LEVEL: z.infer<typeof envSchema>['LOG_LEVEL'];
+  AUDIT_RETENTION_DAYS: number;
+  APPLICATION_LOG_RETENTION_DAYS: number;
+  SOURCE_IP_MODE: z.infer<typeof envSchema>['SOURCE_IP_MODE'];
+  CSRF_ORIGIN_CHECK: boolean;
   ISSUER_PRIVATE_KEY: string;
   ISSUER_KEY_VERSION: string;
   ISSUER_ID: string;
@@ -57,7 +75,22 @@ function resolveIssuerPrivateKey(env: z.infer<typeof envSchema>): string {
   return env.ISSUER_PRIVATE_KEY ?? '';
 }
 
+/**
+ * Rejects ballot-service database URLs so this process cannot be pointed at
+ * the voting database by a shared environment file.
+ *
+ * @param env - Process environment.
+ */
+function assertNoBallotDatabaseAccess(env: NodeJS.ProcessEnv) {
+  if (env.BALLOT_DATABASE_URL || env.VOTING_DATABASE_URL) {
+    throw new Error(
+      'Registration API must not load ballot-service database credentials',
+    );
+  }
+}
+
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
+  assertNoBallotDatabaseAccess(env);
   const parsed = envSchema.parse(env);
   const issuerPrivateKey = resolveIssuerPrivateKey(parsed);
   parseEd25519PrivateKey(issuerPrivateKey);
@@ -68,6 +101,13 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     DATABASE_URL: parsed.DATABASE_URL,
     ADMIN_ORIGIN: parsed.ADMIN_ORIGIN,
     LOG_LEVEL: parsed.LOG_LEVEL,
+    AUDIT_RETENTION_DAYS: parsed.AUDIT_RETENTION_DAYS,
+    APPLICATION_LOG_RETENTION_DAYS: parsed.APPLICATION_LOG_RETENTION_DAYS,
+    SOURCE_IP_MODE: parsed.SOURCE_IP_MODE,
+    CSRF_ORIGIN_CHECK:
+      parsed.CSRF_ORIGIN_CHECK === undefined
+        ? parsed.NODE_ENV !== 'test'
+        : parsed.CSRF_ORIGIN_CHECK === 'true',
     ISSUER_PRIVATE_KEY: issuerPrivateKey,
     ISSUER_KEY_VERSION: parsed.ISSUER_KEY_VERSION,
     ISSUER_ID: parsed.ISSUER_ID,

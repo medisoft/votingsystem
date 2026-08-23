@@ -25,6 +25,26 @@ it('validates environment', () => {
   expect(loadConfig(required).ISSUER_ID).toBe(
     'condominium-registration-service',
   );
+  expect(loadConfig(required).AUDIT_RETENTION_DAYS).toBe(2555);
+  expect(loadConfig(required).APPLICATION_LOG_RETENTION_DAYS).toBe(30);
+  expect(loadConfig(required).SOURCE_IP_MODE).toBe('truncated');
+  expect(loadConfig(required).CSRF_ORIGIN_CHECK).toBe(true);
+  expect(loadConfig({ ...required, NODE_ENV: 'test' }).CSRF_ORIGIN_CHECK).toBe(
+    false,
+  );
+  expect(
+    loadConfig({ ...required, CSRF_ORIGIN_CHECK: 'true', NODE_ENV: 'test' })
+      .CSRF_ORIGIN_CHECK,
+  ).toBe(true);
+});
+
+it('refuses ballot-service database credentials', () => {
+  expect(() =>
+    loadConfig({
+      ...required,
+      BALLOT_DATABASE_URL: 'postgresql://ballot:ballot@localhost:5432/ballot',
+    }),
+  ).toThrow(/ballot-service database credentials/);
 });
 
 it('loads an issuer private key from a mounted secret file', () => {

@@ -117,6 +117,9 @@ it('does not send a JSON content type for bodyless logout', async () => {
     String(url).endsWith('/api/v1/admin/auth/logout'),
   )!;
   expect((logoutCall[1]!.headers as Headers).has('content-type')).toBe(false);
+  expect((logoutCall[1]!.headers as Headers).get('x-requested-with')).toBe(
+    'XMLHttpRequest',
+  );
 });
 
 it('shows operational failures to registration operators', async () => {

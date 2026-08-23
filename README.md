@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 9: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, prototype Ed25519 credential issuance, revocation, hash-chained audit verification, and operational reports.
+Registration and Credential Issuance Service through Stage 10: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, prototype Ed25519 credential issuance, revocation, hash-chained audit verification, operational reports, and privacy hardening.
 
 ## Requirements
 
@@ -166,5 +166,32 @@ Pending manual tests:
 
 Events written before this stage used a non-canonical hash payload. After migrating, run `npm run audit:verify`; if historical rows fail, reset or re-seed the development database. Do not rewrite hashes to hide tampering.
 
-- Local Docker credentials are development-only.
-- HTTPS, backups, deployment secrets, and hardening belong to later stages.
+## Stage 10 privacy hardening
+
+Application logs redact passwords, cookies, activation tokens, public keys, and TOTP material. Automated tests serialize a Pino line with the same redact paths and fail if the raw secrets still appear.
+
+Audit `sourceIp` is truncated at write time (IPv4 /24, IPv6 /48) because that field is hashed. Setting `SOURCE_IP_MODE=omitted` stores null instead. Do not rewrite historical IPs.
+
+`AUDIT_RETENTION_DAYS` (default 2555) and `APPLICATION_LOG_RETENTION_DAYS` (default 30) are documented in `docs/DATA_RETENTION.md`. `npm run audit:retain` reports how many audit events are older than the live window and does not delete them.
+
+Compose uses split PostgreSQL roles: `voting` owns migrations and seed, `registration_app` is the API runtime user, and `registration_readonly` is SELECT-only. The API refuses `BALLOT_DATABASE_URL` and `VOTING_DATABASE_URL` so ballot-service credentials cannot be loaded into this process. If an existing Compose volume predates the init script, `npm run db:grant-roles` (already part of the API container command) creates the roles.
+
+The API uses @fastify/helmet 13.1.1 instead of hand-written header middleware. It is the official Fastify 5 wrapper around Helmet (MIT, actively maintained). Headers include `Content-Security-Policy: default-src 'none';frame-ancestors 'none';base-uri 'none';form-action 'none'`. CSRF protection for cookie-authenticated `/api/v1/admin` writes is Origin/Referer matching `ADMIN_ORIGIN`, plus SameSite=Strict cookies and `X-Requested-With: XMLHttpRequest` from the administrative UI. Public activation is excluded; it authenticates with the one-time token, not the session cookie.
+
+CI runs `npm run audit:deps` (`npm audit --omit=dev --audit-level=critical` on the app workspaces). Fastify 5.12.1, find-my-way 9.9.0, and fast-uri 3.1.5 address router and URI advisories. Remaining high findings in `npm audit` come from the Prisma 6.19 CLI (`deepmerge-ts`); do not downgrade Prisma to 6.12 to silence them. Threat model, retention, and backup encryption: `docs/THREAT_MODEL.md`, `docs/DATA_RETENTION.md`, `docs/BACKUP_ENCRYPTION.md`.
+
+Passed manual tests:
+
+- Sign in from the admin UI, then in the browser network panel confirm mutating calls include `Origin` for `http://localhost:5173` (or the host you opened) and `X-Requested-With: XMLHttpRequest`.
+- `curl -D- http://localhost:3001/health/live` and confirm `content-security-policy`, `x-frame-options: DENY`, and `x-content-type-options: nosniff`.
+- `curl -X POST http://localhost:3001/api/v1/admin/auth/login -H 'content-type: application/json' -H 'origin: https://evil.example' -d '{"email":"admin@example.com","password":"ManualTest-2026"}'` returns `CSRF_ORIGIN_REJECTED`.
+- Repeat the login from the UI origin header and confirm it succeeds.
+- `npm run audit:retain` prints a cutoff and `deleted: false`.
+- After Compose recreate, connect as `registration_app` / `voting_app` and confirm DML works; connect as `registration_readonly` / `voting_readonly` and confirm INSERT is denied.
+
+Known limitations:
+
+- Local Docker credentials remain development-only. Recreate the Postgres volume (or rely on `db:grant-roles`) after pulling this stage so split roles exist.
+- The admin CSP meta tag allows `'unsafe-eval'` for Vite HMR. Production static hosting should serve a stricter CSP without eval.
+- Hash-chained audit events are archived operationally, not physically pruned.
+- HTTPS termination and production secret storage remain deployment concerns.
