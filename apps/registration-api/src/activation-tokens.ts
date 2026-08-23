@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import type { ActivationTokenStatus } from '@prisma/client';
 
 export const ACTIVATION_TOKEN_BYTES = 32;
 export const ACTIVATION_TOKEN_SUPPORT_PREFIX_LENGTH = 8;
@@ -34,5 +35,41 @@ export function generateActivationToken(): GeneratedActivationToken {
       0,
       ACTIVATION_TOKEN_SUPPORT_PREFIX_LENGTH,
     ),
+  };
+}
+
+/**
+ * Maps a stored activation token to the administrative JSON shape.
+ *
+ * @param token - Persisted token fields that are safe to return after generation.
+ * @returns Token metadata without the raw secret or hash.
+ */
+export function publicActivationToken(token: {
+  id: string;
+  registrationRecordId: string;
+  votingScopeId: string;
+  tokenPrefixForSupport: string;
+  status: ActivationTokenStatus;
+  expiresAt: Date;
+  generatedAt: Date;
+  deliveryMethod: string | null;
+  deliveredAt: Date | null;
+  redeemedAt: Date | null;
+  revokedAt: Date | null;
+  revocationReason: string | null;
+}) {
+  return {
+    id: token.id,
+    registrationRecordId: token.registrationRecordId,
+    votingScopeId: token.votingScopeId,
+    tokenPrefixForSupport: token.tokenPrefixForSupport,
+    status: token.status,
+    expiresAt: token.expiresAt,
+    generatedAt: token.generatedAt,
+    deliveryMethod: token.deliveryMethod,
+    deliveredAt: token.deliveredAt,
+    redeemedAt: token.redeemedAt,
+    revokedAt: token.revokedAt,
+    revocationReason: token.revocationReason,
   };
 }

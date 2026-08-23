@@ -61,6 +61,129 @@ export const messages = {
     en: 'Sign out',
     es: 'Cerrar sesión',
   },
+  totpCode: {
+    description: 'Label for a six-digit authenticator code.',
+    en: 'Authenticator code',
+    es: 'Código del autenticador',
+  },
+  totpRequired: {
+    description:
+      'Login prompt when a TOTP code is required after a valid password.',
+    en: 'Enter the authenticator code to finish signing in.',
+    es: 'Introduce el código del autenticador para terminar de iniciar sesión.',
+  },
+  totpInvalid: {
+    description: 'Login error when the submitted TOTP code is wrong.',
+    en: 'The authenticator code is incorrect.',
+    es: 'El código del autenticador es incorrecto.',
+  },
+  accountSecurity: {
+    description: 'Heading for password change and TOTP settings.',
+    en: 'Account security',
+    es: 'Seguridad de la cuenta',
+  },
+  currentPassword: {
+    description: 'Label for the current password when changing it.',
+    en: 'Current password',
+    es: 'Contraseña actual',
+  },
+  newPassword: {
+    description: 'Label for the new password field.',
+    en: 'New password',
+    es: 'Nueva contraseña',
+  },
+  confirmPassword: {
+    description: 'Label for confirming the new password.',
+    en: 'Confirm new password',
+    es: 'Confirmar nueva contraseña',
+  },
+  changePassword: {
+    description: 'Button that submits a password change.',
+    en: 'Change password',
+    es: 'Cambiar contraseña',
+  },
+  passwordChanged: {
+    description: 'Success status after the password is changed.',
+    en: 'Password updated.',
+    es: 'Contraseña actualizada.',
+  },
+  passwordChangeFailed: {
+    description: 'Error shown when a password change is rejected.',
+    en: 'Unable to change the password.',
+    es: 'No fue posible cambiar la contraseña.',
+  },
+  passwordMismatch: {
+    description: 'Error when the new password and confirmation do not match.',
+    en: 'The new password and confirmation do not match.',
+    es: 'La nueva contraseña y la confirmación no coinciden.',
+  },
+  totpEnabledStatus: {
+    description:
+      'Notice that TOTP is currently enabled for the signed-in administrator.',
+    en: 'Authenticator app sign-in is enabled.',
+    es: 'El inicio de sesión con autenticador está activado.',
+  },
+  totpDisabledStatus: {
+    description:
+      'Notice that TOTP is not enabled for the signed-in administrator.',
+    en: 'Authenticator app sign-in is optional and currently off.',
+    es: 'El inicio de sesión con autenticador es opcional y está desactivado.',
+  },
+  startTotp: {
+    description: 'Button that begins TOTP enrollment.',
+    en: 'Set up authenticator',
+    es: 'Configurar autenticador',
+  },
+  totpSetupHelp: {
+    description: 'Instructions for scanning the TOTP enrollment QR code.',
+    en: 'Scan this QR code or enter the secret in your authenticator app, then confirm with a code.',
+    es: 'Escanea este código QR o introduce el secreto en tu autenticador y confirma con un código.',
+  },
+  totpSecret: {
+    description: 'Label for the one-time TOTP secret shown during enrollment.',
+    en: 'Secret',
+    es: 'Secreto',
+  },
+  totpQrAlt: {
+    description: 'Alternative text for the TOTP enrollment QR image.',
+    en: 'Authenticator enrollment QR code',
+    es: 'Código QR de alta del autenticador',
+  },
+  confirmTotp: {
+    description: 'Button that confirms TOTP enrollment with a code.',
+    en: 'Enable authenticator',
+    es: 'Activar autenticador',
+  },
+  totpEnabledMessage: {
+    description: 'Success status after TOTP is enabled.',
+    en: 'Authenticator sign-in is enabled.',
+    es: 'El inicio de sesión con autenticador está activado.',
+  },
+  totpEnableFailed: {
+    description: 'Error when TOTP enrollment cannot be completed.',
+    en: 'Unable to enable the authenticator.',
+    es: 'No fue posible activar el autenticador.',
+  },
+  disableTotp: {
+    description: 'Button that turns off TOTP.',
+    en: 'Disable authenticator',
+    es: 'Desactivar autenticador',
+  },
+  totpDisabledMessage: {
+    description: 'Success status after TOTP is disabled.',
+    en: 'Authenticator sign-in is disabled.',
+    es: 'El inicio de sesión con autenticador está desactivado.',
+  },
+  totpDisableFailed: {
+    description: 'Error when TOTP cannot be disabled.',
+    en: 'Unable to disable the authenticator.',
+    es: 'No fue posible desactivar el autenticador.',
+  },
+  totpSetupFailed: {
+    description: 'Error when TOTP setup cannot start.',
+    en: 'Unable to start authenticator setup.',
+    es: 'No fue posible iniciar la configuración del autenticador.',
+  },
   voterRecords: {
     description: 'Heading for the voter registration record list.',
     en: 'Voter records',
@@ -212,6 +335,245 @@ export const messages = {
     en: 'Edit name',
     es: 'Editar nombre',
   },
+  editScope: {
+    description: 'Button that opens the voting-scope edit form.',
+    en: 'Edit scope',
+    es: 'Editar alcance',
+  },
+  saveScope: {
+    description: 'Button that saves voting-scope field changes.',
+    en: 'Save scope',
+    es: 'Guardar alcance',
+  },
+  cancelEdit: {
+    description: 'Button that closes an edit form without saving.',
+    en: 'Cancel',
+    es: 'Cancelar',
+  },
+  rollbackToVoting: {
+    description:
+      'Button for the privileged rollback of a closed scope to voting-active.',
+    en: 'Return to voting',
+    es: 'Volver a votación',
+  },
+  rollbackReasonPrompt: {
+    description: 'Prompt asking why a closed voting scope is being reopened.',
+    en: 'Reason for returning this closed scope to voting',
+    es: 'Motivo para devolver este alcance cerrado a votación',
+  },
+  editRecord: {
+    description: 'Button that opens the registration-record edit form.',
+    en: 'Edit record',
+    es: 'Editar registro',
+  },
+  saveRecord: {
+    description: 'Button that saves registration-record field changes.',
+    en: 'Save record',
+    es: 'Guardar registro',
+  },
+  recordStatus: {
+    description: 'Label for the registration record active/inactive status.',
+    en: 'Status',
+    es: 'Estado',
+  },
+  statusActive: {
+    description: 'Active registration-record status label.',
+    en: 'Active',
+    es: 'Activo',
+  },
+  statusInactive: {
+    description: 'Inactive registration-record status label.',
+    en: 'Inactive',
+    es: 'Inactivo',
+  },
+  filterAll: {
+    description: 'Filter option that does not restrict the registration list.',
+    en: 'All',
+    es: 'Todos',
+  },
+  filterEligible: {
+    description: 'Filter option for globally eligible registration records.',
+    en: 'Eligible',
+    es: 'Elegibles',
+  },
+  filterIneligible: {
+    description: 'Filter option for globally ineligible registration records.',
+    en: 'Ineligible',
+    es: 'No elegibles',
+  },
+  filterActiveToken: {
+    description:
+      'Filter option for records that have an active activation token.',
+    en: 'Has active token',
+    es: 'Con token activo',
+  },
+  filterNoActiveToken: {
+    description:
+      'Filter option for records that do not have an active activation token.',
+    en: 'No active token',
+    es: 'Sin token activo',
+  },
+  recordHistory: {
+    description: 'Heading for audit events tied to the selected registration.',
+    en: 'Record history',
+    es: 'Historial del registro',
+  },
+  auditEvents: {
+    description: 'Heading for the recent administrative audit event list.',
+    en: 'Recent audit events',
+    es: 'Eventos de auditoría recientes',
+  },
+  mainNavigation: {
+    description: 'Accessible name for the primary administrative navigation.',
+    en: 'Main',
+    es: 'Principal',
+  },
+  navHome: {
+    description: 'Navigation link to the dashboard reports page.',
+    en: 'Dashboard',
+    es: 'Panel',
+  },
+  language: {
+    description: 'Label for the administrative interface language selector.',
+    en: 'Language',
+    es: 'Idioma',
+  },
+  languageEnglish: {
+    description: 'English option in the language selector.',
+    en: 'English',
+    es: 'Inglés',
+  },
+  languageSpanish: {
+    description: 'Spanish option in the language selector.',
+    en: 'Spanish',
+    es: 'Español',
+  },
+  operationalReports: {
+    description:
+      'Heading for aggregate registration, activation, and credential reports.',
+    en: 'Operational reports',
+    es: 'Informes operativos',
+  },
+  eligibleRecords: {
+    description: 'Dashboard label for globally eligible registration records.',
+    en: 'Eligible records',
+    es: 'Registros elegibles',
+  },
+  tokensGenerated: {
+    description:
+      'Dashboard label for the number of activation tokens generated.',
+    en: 'Tokens generated',
+    es: 'Tokens generados',
+  },
+  tokensRedeemed: {
+    description: 'Dashboard label for redeemed activation tokens.',
+    en: 'Tokens redeemed',
+    es: 'Tokens canjeados',
+  },
+  credentialsIssued: {
+    description: 'Dashboard label for issued voting credentials.',
+    en: 'Credentials issued',
+    es: 'Credenciales emitidas',
+  },
+  credentialsRevoked: {
+    description: 'Dashboard label for revoked voting credentials.',
+    en: 'Credentials revoked',
+    es: 'Credenciales revocadas',
+  },
+  notYetActivated: {
+    description:
+      'Dashboard label for eligible records that have never activated.',
+    en: 'Not yet activated',
+    es: 'Aún no activados',
+  },
+  downloadRegistrationSummary: {
+    description: 'Link that downloads the registration summary as CSV.',
+    en: 'Download registration summary',
+    es: 'Descargar resumen de registros',
+  },
+  downloadActivationSummary: {
+    description: 'Link that downloads the activation summary as CSV.',
+    en: 'Download activation summary',
+    es: 'Descargar resumen de activación',
+  },
+  downloadCredentialStatus: {
+    description: 'Link that downloads the credential status report as CSV.',
+    en: 'Download credential status',
+    es: 'Descargar estado de credenciales',
+  },
+  auditEventType: {
+    description: 'Filter label for audit event type.',
+    en: 'Event type',
+    es: 'Tipo de evento',
+  },
+  auditFrom: {
+    description: 'Filter label for the start of the audit event date range.',
+    en: 'From',
+    es: 'Desde',
+  },
+  auditTo: {
+    description: 'Filter label for the end of the audit event date range.',
+    en: 'To',
+    es: 'Hasta',
+  },
+  auditActorId: {
+    description:
+      'Filter label for the administrator who produced an audit event.',
+    en: 'Actor id',
+    es: 'Id del actor',
+  },
+  auditTargetType: {
+    description:
+      'Filter label for the kind of record an audit event refers to.',
+    en: 'Target type',
+    es: 'Tipo de destino',
+  },
+  auditTargetId: {
+    description: 'Filter label for the record id an audit event refers to.',
+    en: 'Target id',
+    es: 'Id de destino',
+  },
+  downloadAuditEvents: {
+    description: 'Link that downloads filtered audit events as CSV.',
+    en: 'Download audit events',
+    es: 'Descargar eventos de auditoría',
+  },
+  issuerKeys: {
+    description: 'Heading for published credential-issuer public keys.',
+    en: 'Issuer keys',
+    es: 'Claves del emisor',
+  },
+  issuerAlgorithm: {
+    description: 'Label for the issuer signature algorithm.',
+    en: 'Algorithm',
+    es: 'Algoritmo',
+  },
+  issuerProtocol: {
+    description: 'Label for the credential issuance protocol.',
+    en: 'Protocol',
+    es: 'Protocolo',
+  },
+  issuerModulus: {
+    description: 'Label for the issuer RSA modulus length in bits.',
+    en: 'Modulus length',
+    es: 'Longitud del módulo',
+  },
+  noIssuerKeys: {
+    description: 'Empty state when no issuer public keys are published.',
+    en: 'No issuer keys are published.',
+    es: 'No hay claves de emisor publicadas.',
+  },
+  noAuditEvents: {
+    description: 'Empty state when no audit events match the current view.',
+    en: 'No audit events.',
+    es: 'No hay eventos de auditoría.',
+  },
+  globallyEligible: {
+    description:
+      'Checkbox that marks a registration record as globally eligible.',
+    en: 'Eligible to vote',
+    es: 'Elegible para votar',
+  },
   advanceTo: {
     description:
       'Button label for advancing a scope to its next status; status is substituted.',
@@ -319,6 +681,42 @@ export const messages = {
     description: 'Button that creates an administrator account.',
     en: 'Create user',
     es: 'Crear usuario',
+  },
+  saveRole: {
+    description: 'Button that saves a changed administrator role.',
+    en: 'Save role',
+    es: 'Guardar rol',
+  },
+  deactivateUser: {
+    description: 'Button that deactivates an administrator account.',
+    en: 'Deactivate',
+    es: 'Desactivar',
+  },
+  reactivateUser: {
+    description: 'Button that reactivates an administrator account.',
+    en: 'Reactivate',
+    es: 'Reactivar',
+  },
+  unlockUser: {
+    description: 'Button that clears a lockout after failed logins.',
+    en: 'Unlock',
+    es: 'Desbloquear',
+  },
+  administratorUpdated: {
+    description: 'Success message after editing an administrator.',
+    en: 'Administrator updated.',
+    es: 'Administrador actualizado.',
+  },
+  lastSystemAdmin: {
+    description:
+      'Error when deactivating or demoting the last active system administrator.',
+    en: 'The last system administrator cannot be removed.',
+    es: 'No se puede quitar al último administrador del sistema.',
+  },
+  userUpdateFailed: {
+    description: 'Error when an administrator account cannot be updated.',
+    en: 'Unable to update the administrator.',
+    es: 'No fue posible actualizar al administrador.',
   },
   roleRegistrationOperator: {
     description: 'Display name for the registration operator role.',
@@ -592,6 +990,21 @@ export const messages = {
     en: 'CSV file',
     es: 'Archivo CSV',
   },
+  importMode: {
+    description: 'Label for choosing create-only or upsert CSV import.',
+    en: 'Import mode',
+    es: 'Modo de importación',
+  },
+  importModeCreate: {
+    description: 'CSV import mode that only creates new units.',
+    en: 'Create new units only',
+    es: 'Solo crear unidades nuevas',
+  },
+  importModeUpsert: {
+    description: 'CSV import mode that creates or updates units.',
+    en: 'Create or update units',
+    es: 'Crear o actualizar unidades',
+  },
   previewImport: {
     description:
       'Button that uploads and validates a CSV without saving records.',
@@ -611,8 +1024,8 @@ export const messages = {
   importSummary: {
     description:
       'CSV preview summary with substituted total, valid, and rejected row counts.',
-    en: 'Total: {total}. Valid: {valid}. Rejected: {rejected}.',
-    es: 'Total: {total}. Válidas: {valid}. Rechazadas: {rejected}.',
+    en: 'Total: {total}. Created: {created}. Updated: {updated}. Valid: {valid}. Rejected: {rejected}.',
+    es: 'Total: {total}. Creadas: {created}. Actualizadas: {updated}. Válidas: {valid}. Rechazadas: {rejected}.',
   },
   importPreviewRange: {
     description:
@@ -753,6 +1166,109 @@ export const messages = {
       'CSV validation message when the unit already exists in registration records.',
     en: 'The unit already exists.',
     es: 'La unidad ya existe.',
+  },
+  importErrorScopeColumns: {
+    description:
+      'CSV validation message when scope columns are used without upsert mode.',
+    en: 'Scope columns can only be imported when creating or updating units.',
+    es: 'Las columnas de alcance solo se pueden importar al crear o actualizar unidades.',
+  },
+  importErrorRecordDeleted: {
+    description:
+      'CSV validation message when a soft-deleted unit is updated without ACTIVE status.',
+    en: 'Set status to ACTIVE to restore a deactivated unit.',
+    es: 'Establece el estado en ACTIVE para restaurar una unidad desactivada.',
+  },
+  importErrorInvalidScope: {
+    description: 'CSV validation message when voting_scope_id does not exist.',
+    en: 'The voting scope does not exist.',
+    es: 'El alcance de votación no existe.',
+  },
+  importErrorScopeIdRequired: {
+    description:
+      'CSV validation message when scope fields are set without voting_scope_id.',
+    en: 'voting_scope_id is required when scope columns are set.',
+    es: 'voting_scope_id es obligatorio cuando hay columnas de alcance.',
+  },
+  issuedCredential: {
+    description: 'Heading for the selected issued voting credential.',
+    en: 'Issued credential',
+    es: 'Credencial emitida',
+  },
+  credentialStatus: {
+    description:
+      'Label for whether a registration has an issued voting credential.',
+    en: 'Credential',
+    es: 'Credencial',
+  },
+  credentialStatusIssued: {
+    description: 'Status when a registration has an active issued credential.',
+    en: 'Issued',
+    es: 'Emitida',
+  },
+  credentialStatusRevoked: {
+    description: 'Status when the issued credential has been revoked.',
+    en: 'Revoked',
+    es: 'Revocada',
+  },
+  credentialStatusNone: {
+    description: 'Status when no voting credential has been issued.',
+    en: 'Not issued',
+    es: 'No emitida',
+  },
+  credentialVersionLabel: {
+    description: 'Issued credential version number.',
+    en: 'Version {version}',
+    es: 'Versión {version}',
+  },
+  credentialExpires: {
+    description:
+      'Issued credential expiration with a substituted localized date.',
+    en: 'Expires: {date}',
+    es: 'Vence: {date}',
+  },
+  revokeCredential: {
+    description: 'Button that revokes an active issued credential.',
+    en: 'Revoke credential',
+    es: 'Revocar credencial',
+  },
+  revokingCredential: {
+    description: 'Button text while a credential is revoked.',
+    en: 'Revoking credential…',
+    es: 'Revocando credencial…',
+  },
+  reissueCredential: {
+    description:
+      'Button that revokes the current credential and issues a replacement activation QR.',
+    en: 'Reissue credential',
+    es: 'Reemitir credencial',
+  },
+  reissuingCredential: {
+    description:
+      'Button text while a replacement credential activation is generated.',
+    en: 'Reissuing credential…',
+    es: 'Reemitiendo credencial…',
+  },
+  reissueReason: {
+    description: 'Label for the reason recorded when a credential is replaced.',
+    en: 'Reissue reason',
+    es: 'Motivo de reemisión',
+  },
+  credentialRevoked: {
+    description: 'Success message after an issued credential is revoked.',
+    en: 'Credential revoked.',
+    es: 'Credencial revocada.',
+  },
+  credentialReissued: {
+    description:
+      'Success message after a replacement activation QR is generated.',
+    en: 'Replacement activation QR generated. The previous credential is revoked.',
+    es: 'Se generó el QR de activación de reemplazo. La credencial anterior está revocada.',
+  },
+  credentialActionFailed: {
+    description: 'Error shown when credential revocation or reissuance fails.',
+    en: 'Unable to update the credential: {error}',
+    es: 'No fue posible actualizar la credencial: {error}',
   },
   statusDraft: {
     description: 'Display label for the DRAFT voting-scope status.',

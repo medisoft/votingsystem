@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { createTranslator, detectLocale } from '.';
+import {
+  createTranslator,
+  detectLocale,
+  readStoredLocale,
+  resolveLocale,
+  storeLocale,
+} from '.';
 
 describe('internationalization', () => {
   it('selects the first supported browser language', () => {
@@ -27,5 +33,19 @@ describe('internationalization', () => {
     expect(createTranslator('en')('deactivateConfirm', { unit: 'A-101' })).toBe(
       'Deactivate A-101? Its history will be preserved.',
     );
+  });
+
+  it('prefers a stored locale over browser languages', () => {
+    const storage = new Map<string, string>();
+    const fake = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+    };
+    expect(readStoredLocale(fake)).toBeNull();
+    storeLocale('es', fake);
+    expect(readStoredLocale(fake)).toBe('es');
+    expect(resolveLocale(['en-US'], readStoredLocale(fake))).toBe('es');
   });
 });

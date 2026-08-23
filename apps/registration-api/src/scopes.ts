@@ -44,6 +44,10 @@ const transitionSchema = z.object({
   status: z.nativeEnum(VotingScopeStatus),
   version: z.number().int().positive(),
 });
+const rollbackSchema = z.object({
+  version: z.number().int().positive(),
+  reason: z.string().trim().min(3).max(500),
+});
 const next: Record<VotingScopeStatus, VotingScopeStatus[]> = {
   DRAFT: [VotingScopeStatus.REGISTRATION_OPEN],
   REGISTRATION_OPEN: [VotingScopeStatus.ACTIVATION_OPEN],
@@ -52,8 +56,76 @@ const next: Record<VotingScopeStatus, VotingScopeStatus[]> = {
   CLOSED: [VotingScopeStatus.ARCHIVED],
   ARCHIVED: [],
 };
+const privilegedRollback: Partial<
+  Record<VotingScopeStatus, VotingScopeStatus>
+> = {
+  [VotingScopeStatus.CLOSED]: VotingScopeStatus.VOTING_ACTIVE,
+};
+const publicScopeParams = z.object({ scopeId: z.string().uuid() });
+
+/**
+ * Whether the scope currently accepts public credential activation.
+ *
+ * Matches the window checks in activation (status, activation interval,
+ * credential expiry). Issuer-key matching is a client/config concern and
+ * is not part of this public flag.
+ *
+ * @param scope - Stored voting-scope status and timestamps.
+ * @param now - Instant used for window comparison.
+ */
+export function scopeAcceptsActivation(
+  scope: {
+    status: VotingScopeStatus;
+    activationStartsAt: Date;
+    activationEndsAt: Date;
+    credentialExpiresAt: Date;
+  },
+  now: Date,
+): boolean {
+  return (
+    scope.status === VotingScopeStatus.ACTIVATION_OPEN &&
+    now >= scope.activationStartsAt &&
+    now < scope.activationEndsAt &&
+    scope.credentialExpiresAt > now
+  );
+}
 
 export function registerScopeRoutes(app: FastifyInstance) {
+  app.get(
+    '/api/v1/public/scopes/:scopeId/status',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const params = publicScopeParams.safeParse(request.params);
+      if (!params.success)
+        return reply.code(400).send({ code: 'INVALID_SCOPE_ID' });
+      const scope = await app.prisma.votingScope.findUnique({
+        where: { id: params.data.scopeId },
+        select: {
+          id: true,
+          status: true,
+          startsAt: true,
+          endsAt: true,
+          activationStartsAt: true,
+          activationEndsAt: true,
+          credentialExpiresAt: true,
+          issuerKeyVersion: true,
+        },
+      });
+      if (!scope) return reply.code(404).send({ code: 'SCOPE_NOT_FOUND' });
+      const now = new Date();
+      return {
+        scopeId: scope.id,
+        status: scope.status,
+        activationStartsAt: scope.activationStartsAt.toISOString(),
+        activationEndsAt: scope.activationEndsAt.toISOString(),
+        startsAt: scope.startsAt.toISOString(),
+        endsAt: scope.endsAt.toISOString(),
+        credentialExpiresAt: scope.credentialExpiresAt.toISOString(),
+        acceptsActivation: scopeAcceptsActivation(scope, now),
+        issuerKeyVersion: scope.issuerKeyVersion,
+      };
+    },
+  );
   app.get(
     '/api/v1/admin/scopes',
     { preHandler: app.authenticateAdmin },
@@ -189,6 +261,51 @@ export function registerScopeRoutes(app: FastifyInstance) {
         metadata: {
           from: current.status,
           to: scope.status,
+          version: scope.version,
+        },
+      });
+      return { scope };
+    },
+  );
+  app.post(
+    '/api/v1/admin/scopes/:id/rollback',
+    { preHandler: app.requireSystemAdmin },
+    async (request, reply) => {
+      const params = idParams.safeParse(request.params),
+        parsed = rollbackSchema.safeParse(request.body);
+      if (!params.success || !parsed.success)
+        return reply.code(400).send({ code: 'INVALID_ROLLBACK' });
+      const current = await app.prisma.votingScope.findUnique({
+        where: { id: params.data.id },
+      });
+      if (!current) return reply.code(404).send({ code: 'SCOPE_NOT_FOUND' });
+      const status = privilegedRollback[current.status];
+      if (!status)
+        return reply.code(409).send({ code: 'INVALID_STATUS_TRANSITION' });
+      const result = await app.prisma.votingScope.updateMany({
+        where: {
+          id: current.id,
+          version: parsed.data.version,
+          status: current.status,
+        },
+        data: { status, version: { increment: 1 } },
+      });
+      if (!result.count)
+        return reply.code(409).send({ code: 'VERSION_CONFLICT' });
+      const scope = await app.prisma.votingScope.findUniqueOrThrow({
+        where: { id: current.id },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'VOTING_SCOPE_ROLLED_BACK',
+        targetType: 'VotingScope',
+        targetId: scope.id,
+        sourceIp: request.ip,
+        metadata: {
+          from: current.status,
+          to: scope.status,
+          reason: parsed.data.reason,
           version: scope.version,
         },
       });

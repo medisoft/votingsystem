@@ -8,6 +8,11 @@ export const MAX_CSV_ROWS = 5000;
 // JSON may escape each input byte as a six-character Unicode escape.
 export const MAX_IMPORT_JSON_BYTES = MAX_CSV_BYTES * 6 + 4096;
 export const requiredHeaders = ['unit_number', 'owner_name'] as const;
+export const scopeHeaders = [
+  'voting_scope_id',
+  'scope_eligible',
+  'scope_voting_weight',
+] as const;
 export const supportedHeaders = [
   ...requiredHeaders,
   'representative_name',
@@ -17,7 +22,9 @@ export const supportedHeaders = [
   'eligible',
   'status',
   'notes',
+  ...scopeHeaders,
 ] as const;
+export type ImportMode = 'create' | 'upsert';
 
 export interface ImportError {
   row: number;
@@ -26,19 +33,26 @@ export interface ImportError {
   message: string;
 }
 
+export interface ImportRowData {
+  unitNumber: string;
+  ownerName: string;
+  representativeName: string | null;
+  email: string | null;
+  phone: string | null;
+  votingWeight: string;
+  eligible: boolean;
+  status: RegistrationStatus;
+  statusProvided: boolean;
+  notes: string | null;
+  votingScopeId: string | null;
+  scopeEligible: boolean | null;
+  scopeVotingWeight: string | null;
+}
+
 export interface ImportRow {
   row: number;
-  data?: {
-    unitNumber: string;
-    ownerName: string;
-    representativeName: string | null;
-    email: string | null;
-    phone: string | null;
-    votingWeight: string;
-    eligible: boolean;
-    status: RegistrationStatus;
-    notes: string | null;
-  };
+  data?: ImportRowData;
+  action?: 'create' | 'update';
   errors: ImportError[];
 }
 
@@ -80,6 +94,36 @@ const rowSchema = z.object({
       .default(RegistrationStatus.ACTIVE),
   ),
   notes: z.string().trim().max(5000).optional().default(''),
+  voting_scope_id: z.preprocess(
+    blankToUndefined,
+    z
+      .union([z.literal(''), z.string().uuid()])
+      .optional()
+      .default(''),
+  ),
+  scope_eligible: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .optional()
+      .refine(
+        (value) => value === undefined || value === 'true' || value === 'false',
+      ),
+  ),
+  scope_voting_weight: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .trim()
+      .optional()
+      .refine(
+        (value) =>
+          value === undefined ||
+          (/^\d{1,8}(\.\d{1,4})?$/.test(value) && Number(value) > 0),
+      ),
+  ),
 });
 
 function blankToUndefined(value: unknown) {
@@ -147,11 +191,15 @@ export function hashCsv(csv: string) {
   return createHash('sha256').update(csv, 'utf8').digest('hex');
 }
 
-export function parseRegistrationCsv(csv: string): {
+export function parseRegistrationCsv(
+  csv: string,
+  options: { mode?: ImportMode } = {},
+): {
   fileHash: string;
   rows: ImportRow[];
   errors: ImportError[];
 } {
+  const mode: ImportMode = options.mode ?? 'create';
   if (Buffer.byteLength(csv, 'utf8') > MAX_CSV_BYTES)
     return {
       fileHash: hashCsv(csv),
@@ -212,6 +260,16 @@ export function parseRegistrationCsv(csv: string): {
         message: 'Header cannot be empty.',
       });
     else if (
+      mode === 'create' &&
+      scopeHeaders.includes(header as (typeof scopeHeaders)[number])
+    )
+      fileErrors.push({
+        row: headerRow,
+        field: header,
+        code: 'SCOPE_COLUMNS_REQUIRE_UPSERT',
+        message: 'Scope columns can only be imported in upsert mode.',
+      });
+    else if (
       !supportedHeaders.includes(header as (typeof supportedHeaders)[number])
     )
       fileErrors.push({
@@ -256,8 +314,18 @@ export function parseRegistrationCsv(csv: string): {
       const raw: Record<string, string | undefined> = Object.fromEntries(
         headers.map((header, index) => [header, values[index] ?? '']),
       );
-      for (const field of ['voting_weight', 'eligible', 'status'])
+      for (const field of [
+        'voting_weight',
+        'eligible',
+        'status',
+        'voting_scope_id',
+        'scope_eligible',
+        'scope_voting_weight',
+      ])
         if (blankToUndefined(raw[field]) === undefined) raw[field] = undefined;
+      const statusProvided =
+        headers.includes('status') &&
+        blankToUndefined(values[headers.indexOf('status')]) !== undefined;
       const parsed = rowSchema.safeParse(raw);
       if (!parsed.success)
         return {
@@ -284,6 +352,24 @@ export function parseRegistrationCsv(csv: string): {
           ],
         };
       seen.add(unitKey);
+      const votingScopeId = parsed.data.voting_scope_id || null;
+      if (
+        !votingScopeId &&
+        (parsed.data.scope_eligible !== undefined ||
+          parsed.data.scope_voting_weight !== undefined)
+      )
+        return {
+          row,
+          errors: [
+            {
+              row,
+              field: 'voting_scope_id',
+              code: 'SCOPE_ID_REQUIRED',
+              message:
+                'voting_scope_id is required when scope eligibility columns are set.',
+            },
+          ],
+        };
       return {
         row,
         errors: [],
@@ -296,7 +382,14 @@ export function parseRegistrationCsv(csv: string): {
           votingWeight: parsed.data.voting_weight,
           eligible: parsed.data.eligible === 'true',
           status: parsed.data.status,
+          statusProvided,
           notes: parsed.data.notes || null,
+          votingScopeId,
+          scopeEligible:
+            parsed.data.scope_eligible === undefined
+              ? null
+              : parsed.data.scope_eligible === 'true',
+          scopeVotingWeight: parsed.data.scope_voting_weight || null,
         },
       };
     });

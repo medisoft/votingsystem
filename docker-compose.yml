@@ -5,8 +5,12 @@ services:
       POSTGRES_DB: registration
       POSTGRES_USER: voting
       POSTGRES_PASSWORD: voting
+      REGISTRATION_APP_PASSWORD: voting_app
+      REGISTRATION_READONLY_PASSWORD: voting_readonly
     ports: ['15432:5432']
-    volumes: [registration-postgres:/var/lib/postgresql/data]
+    volumes:
+      - registration-postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U voting -d registration']
       interval: 5s
@@ -33,12 +37,24 @@ services:
       [
         'sh',
         '-c',
-        'npm run db:migrate -w @voting/registration-api && npm run dev -w @voting/registration-api',
+        'DATABASE_URL="$$DATABASE_ADMIN_URL" npm run db:migrate -w @voting/registration-api && DATABASE_URL="$$DATABASE_ADMIN_URL" npm run db:seed -w @voting/registration-api && npm run db:grant-roles -w @voting/registration-api && npm run dev -w @voting/registration-api',
       ]
     environment:
-      DATABASE_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
+      DATABASE_URL: postgresql://registration_app:voting_app@postgres:5432/registration?schema=public
+      DATABASE_ADMIN_URL: postgresql://voting:voting@postgres:5432/registration?schema=public
+      GRANT_APP_ROLES: 'true'
+      REGISTRATION_APP_PASSWORD: voting_app
+      REGISTRATION_READONLY_PASSWORD: voting_readonly
       ADMIN_ORIGIN: http://localhost:5173
-    ports: ['3000:3000']
+      AUDIT_RETENTION_DAYS: '2555'
+      APPLICATION_LOG_RETENTION_DAYS: '30'
+      SOURCE_IP_MODE: truncated
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: ManualTest-2026
+      PORT: '3001'
+      ISSUER_PRIVATE_KEY: MIIEwAIBADANBgkqhkiG9w0BAQEFAASCBKowggSmAgEAAoIBAQDZ6ZfdvsI-7DL7zLUHPjQfEuFc6Zf_vTpQ9ktYPPqK_OQyaWm3J1tZnuEsycf9IEiK_k6-lUoENZJMrUBKgAn2z8jBPWHz_o25Brd_tLJdre4wIw66HYFuAZdDY4Jbf7MFOnlbJ9tEUl370FHaCHhuHqZcxxyqS4x_zTPfp3Wnh8y8MS8ct_hJTEd5pcM-JjQ4Aukna0jVlzyzARysFwhcVowZPLHbwCefwC6veqqfRekjnXbK_EsO8Pfs9dd84rm4lsFU2Qw9Z2JxByhbf0oFPCo2j2XMn0RWX9J_jcq7bdGw3I3OQpl3U_sk_sy141fFqA8IcdBxY4rjh0M1j5cNAgMBAAECggEBAJNVAl7kmMSeQiJI16ScA_V2eHSvYxt_vyv6Ohrgr6zFKyyCZP12WKcRasEzdEnKSAHhyy_EFBUge1foU22LgDElb2BnthCX7Q5KYkqvy2DXNhHJwi1Hwbi0zqa7YummP02rqV1eZzucTPrycETwMSyTAHv-C32AMvA9t3Lh8ARh5ju3Hxc8gSwEvg0ZeZV2x2efiJ5piXWPnPF1AT0-0z4q-9ri1HCXfjlPWAEI4W2kOvsQ2l_BS4UVq9jeheWzSkepPHhqTTX0C9zs3SXbvHb9m9irzOzXIX_PxIfTcuJouUm3ZG71XKmpD-KRF7_YP4QX5NhCa_KIndPWaap16-kCgYEA2f4xYbIJVV6zzINxNA_DXCeMdUgHtwRNn8CrCbsDP8bNRIFsvTrCOL_VknDbxn4ivLqWuzLyDPfj2gmtYEKKpbibnyHMYzLbpkDqBeSQLSxJQ5rtjalR9p1inwHL3pzlH5tC5OAWqGvHWBHTPts7Ml2xfY3mQiJVl9PMzXoe10MCgYEA_-fPDCKMA_C4YhW36X1CFKf6Nl2sEO1fFz_nqZIVaPMYbBuAC6BnK8DKNtYOBiTq93JIZCpln5DAr9jM802_4Fr3rYroqzZJHzJc4gS4QmuC7bCDmIM7GkNRUbiqLzJUciX1RzsvxLnYi0wDzaHOdFj6055M51t5CecoU8dYK28CgYEAnkG14_D2aa245i4-jscq0so7ZCGIyEstd17OTOAhubk_6A31vWLdAYnzKL8aLn4ABfeH2htgMh38opwH7Cwir7DX-az1zsZrQ8U4oFKQgNr3zUa6Uu-re1hC8qDBOrm4dTuoUrSEfnzQWZWHQMizrxrp8faERVrbvL-cnUedADUCgYEAxNKf9q9jjWxKBHa720PR3V1NHx9wxhwr9Q_buBp5iRzf_dYw58BZWdeQMBj29FbUubkWYKQTQWTuLtHK4J8-IusUcE_UoErCdtIfil8i8UMLkpEexeC5RnvcQcSMcHx_YsQ7IKwvE1n1aT3v9uqqheYiFT093PwH3kwCQl2iPNUCgYEAwKdUQGEpwKwJqijjeQJqrkSXGcuEEj8IrYAOHif6vR0cyVeDfOmUVtvlBaslQT0KOJ3eNJqvQ2YNFVXezPjPiTyKIClzR7CMdwp971IGhZQfKiMoxFTRv9IkqLJ0sn62P3sEf6oz0PZCELLrM-2L0tE9zpYgbSB7_K9XmJXcA5Y
+      ISSUER_KEY_VERSION: dev-2026-01
+    ports: ['3001:3001']
     volumes: ['.:/workspace']
     depends_on:
       postgres:
@@ -49,7 +65,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          "fetch('http://localhost:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
         ]
       interval: 5s
       timeout: 5s
@@ -59,7 +75,7 @@ services:
     working_dir: /workspace
     command: npm run dev -w @voting/registration-admin
     environment:
-      API_PROXY_TARGET: http://api:3000
+      API_PROXY_TARGET: http://api:3001
     ports: ['5173:5173']
     volumes: ['.:/workspace']
     depends_on:

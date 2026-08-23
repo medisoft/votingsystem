@@ -4,17 +4,121 @@ import argon2 from 'argon2';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
+import { rowsToCsv } from './reports.js';
+import { generateTotpSecret, totpAuthUrl, verifyTotp } from './totp.js';
 
 const COOKIE = 'registration_session';
+const totpCode = z.string().regex(/^\d{6}$/);
 const loginSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(1).max(1024),
+  totp: z.union([totpCode, z.literal('')]).optional(),
+});
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: z.string().min(12).max(1024),
+});
+const totpConfirmSchema = z.object({ totp: totpCode });
+const totpDisableSchema = z.object({
+  password: z.string().min(1).max(1024),
+  totp: z.union([totpCode, z.literal('')]).optional(),
 });
 const createAdminSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(12).max(1024),
   role: z.enum(['SYSTEM_ADMIN', 'REGISTRATION_OPERATOR', 'AUDITOR']),
 });
+const patchAdminSchema = z
+  .object({
+    role: z
+      .enum(['SYSTEM_ADMIN', 'REGISTRATION_OPERATOR', 'AUDITOR'])
+      .optional(),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    unlock: z.literal(true).optional(),
+  })
+  .refine(
+    (value) =>
+      value.role !== undefined ||
+      value.status !== undefined ||
+      value.unlock === true,
+  );
+const userIdParams = z.object({ id: z.string().uuid() });
+const AUDIT_LIST_LIMIT = 100;
+const AUDIT_CSV_LIMIT = 1000;
+const auditEventQuerySchema = z.object({
+  targetId: z.string().min(1).max(100).optional(),
+  targetType: z.string().trim().min(1).max(100).optional(),
+  eventType: z.string().trim().min(1).max(100).optional(),
+  actorId: z.string().uuid().optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+});
+
+/**
+ * Parses audit-event list filters shared by JSON and CSV endpoints.
+ *
+ * @param query - Raw Fastify querystring.
+ * @returns Prisma where input, or an error when the query is invalid.
+ */
+function parseAuditEventQuery(query: unknown) {
+  const parsed = auditEventQuerySchema.safeParse(query);
+  if (!parsed.success) return { error: 'INVALID_QUERY' as const };
+  const from = parsed.data.from ? new Date(parsed.data.from) : undefined;
+  const to = parsed.data.to ? new Date(parsed.data.to) : undefined;
+  if (from && to && from > to) return { error: 'INVALID_QUERY' as const };
+  return {
+    filters: parsed.data,
+    where: {
+      ...(parsed.data.targetId ? { targetId: parsed.data.targetId } : {}),
+      ...(parsed.data.targetType ? { targetType: parsed.data.targetType } : {}),
+      ...(parsed.data.eventType ? { eventType: parsed.data.eventType } : {}),
+      ...(parsed.data.actorId ? { actorId: parsed.data.actorId } : {}),
+      ...(from || to
+        ? {
+            occurredAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Renders audit events as CSV without metadata or secrets.
+ *
+ * @param events - Selected audit rows in display order.
+ */
+function auditEventsCsv(
+  events: Array<{
+    occurredAt: Date;
+    eventType: string;
+    actorType: string;
+    actorId: string | null;
+    targetType: string;
+    targetId: string | null;
+  }>,
+): string {
+  return rowsToCsv(
+    [
+      'occurred_at',
+      'event_type',
+      'actor_type',
+      'actor_id',
+      'target_type',
+      'target_id',
+    ],
+    events.map((event) => [
+      event.occurredAt.toISOString(),
+      event.eventType,
+      event.actorType,
+      event.actorId ?? '',
+      event.targetType,
+      event.targetId ?? '',
+    ]),
+  );
+}
 const hashToken = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 const publicUser = (user: {
@@ -22,12 +126,16 @@ const publicUser = (user: {
   email: string;
   role: AdminRole;
   status: AdminStatus;
+  totpEnabled: boolean;
+  lockedUntil: Date | null;
   createdAt: Date;
 }) => ({
   id: user.id,
   email: user.email,
   role: user.role,
   status: user.status,
+  totpEnabled: user.totpEnabled,
+  lockedUntil: user.lockedUntil?.toISOString() ?? null,
   createdAt: user.createdAt,
 });
 
@@ -52,10 +160,53 @@ declare module 'fastify' {
       email: string;
       role: AdminRole;
       status: AdminStatus;
+      totpEnabled: boolean;
+      lockedUntil: Date | null;
       createdAt: Date;
     };
     sessionId?: string;
   }
+}
+
+/**
+ * Increments failed-login count and locks the account after five failures.
+ *
+ * @param app - Fastify instance that owns the Prisma client.
+ * @param adminId - Administrator whose failed-login counter is updated.
+ * @param failedLoginCount - Current failure count before this attempt.
+ */
+/**
+ * Whether an update would leave the system without an active system administrator.
+ *
+ * @param existing - Administrator being patched.
+ * @param nextRole - Role after the patch.
+ * @param nextStatus - Status after the patch.
+ */
+function dropsLastSystemAdmin(
+  existing: { role: AdminRole; status: AdminStatus },
+  nextRole: AdminRole,
+  nextStatus: AdminStatus,
+): boolean {
+  return (
+    existing.status === AdminStatus.ACTIVE &&
+    existing.role === 'SYSTEM_ADMIN' &&
+    (nextStatus === AdminStatus.INACTIVE || nextRole !== 'SYSTEM_ADMIN')
+  );
+}
+
+async function recordFailedLogin(
+  app: FastifyInstance,
+  adminId: string,
+  failedLoginCount: number,
+) {
+  const count = failedLoginCount + 1;
+  await app.prisma.adminUser.update({
+    where: { id: adminId },
+    data: {
+      failedLoginCount: count,
+      lockedUntil: count >= 5 ? new Date(Date.now() + 15 * 60_000) : null,
+    },
+  });
 }
 
 export function registerAuthRoutes(
@@ -123,17 +274,8 @@ export function registerAuthRoutes(
         (user.lockedUntil && user.lockedUntil > new Date()) ||
         !valid
       ) {
-        if (user && user.status === AdminStatus.ACTIVE) {
-          const count = user.failedLoginCount + 1;
-          await app.prisma.adminUser.update({
-            where: { id: user.id },
-            data: {
-              failedLoginCount: count,
-              lockedUntil:
-                count >= 5 ? new Date(Date.now() + 15 * 60_000) : null,
-            },
-          });
-        }
+        if (user && user.status === AdminStatus.ACTIVE)
+          await recordFailedLogin(app, user.id, user.failedLoginCount);
         await appendAudit(app.prisma, {
           actorType: ActorType.ANONYMOUS,
           eventType: 'ADMIN_LOGIN_FAILED',
@@ -143,6 +285,22 @@ export function registerAuthRoutes(
           metadata: { email },
         });
         return reply.code(401).send({ code: 'INVALID_CREDENTIALS' });
+      }
+      const totp = parsed.data.totp || undefined;
+      if (user.totpEnabled) {
+        if (!totp) return reply.code(401).send({ code: 'TOTP_REQUIRED' });
+        if (!user.totpSecret || !verifyTotp(user.totpSecret, totp)) {
+          await recordFailedLogin(app, user.id, user.failedLoginCount);
+          await appendAudit(app.prisma, {
+            actorType: ActorType.ANONYMOUS,
+            eventType: 'ADMIN_LOGIN_FAILED',
+            targetType: 'AdminUser',
+            targetId: user.id,
+            sourceIp: request.ip,
+            metadata: { email, reason: 'TOTP_INVALID' },
+          });
+          return reply.code(401).send({ code: 'TOTP_INVALID' });
+        }
       }
       const token = randomBytes(32).toString('base64url');
       await app.prisma.$transaction([
@@ -207,6 +365,165 @@ export function registerAuthRoutes(
       return { user: publicUser(request.admin!) };
     },
   );
+  app.post(
+    '/api/v1/admin/auth/password',
+    {
+      preHandler: authenticate,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const parsed = passwordChangeSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_REQUEST' });
+      const admin = await app.prisma.adminUser.findUniqueOrThrow({
+        where: { id: request.admin!.id },
+      });
+      const matches = await argon2.verify(
+        admin.passwordHash,
+        parsed.data.currentPassword,
+      );
+      if (!matches)
+        return reply.code(401).send({ code: 'INVALID_CREDENTIALS' });
+      if (parsed.data.currentPassword === parsed.data.newPassword)
+        return reply.code(400).send({ code: 'PASSWORD_UNCHANGED' });
+      await app.prisma.$transaction([
+        app.prisma.adminUser.update({
+          where: { id: admin.id },
+          data: {
+            passwordHash: await argon2.hash(parsed.data.newPassword, {
+              type: argon2.argon2id,
+            }),
+            failedLoginCount: 0,
+            lockedUntil: null,
+          },
+        }),
+        app.prisma.adminSession.updateMany({
+          where: {
+            adminId: admin.id,
+            revokedAt: null,
+            NOT: { id: request.sessionId! },
+          },
+          data: { revokedAt: new Date() },
+        }),
+      ]);
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: admin.id,
+        eventType: 'ADMIN_PASSWORD_CHANGED',
+        targetType: 'AdminUser',
+        targetId: admin.id,
+        sourceIp: request.ip,
+      });
+      return { user: publicUser({ ...admin, totpEnabled: admin.totpEnabled }) };
+    },
+  );
+  app.post(
+    '/api/v1/admin/auth/totp/setup',
+    {
+      preHandler: authenticate,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const admin = await app.prisma.adminUser.findUniqueOrThrow({
+        where: { id: request.admin!.id },
+      });
+      if (admin.totpEnabled)
+        return reply.code(409).send({ code: 'TOTP_ALREADY_ENABLED' });
+      const secret = generateTotpSecret();
+      await app.prisma.adminUser.update({
+        where: { id: admin.id },
+        data: { totpSecret: secret, totpEnabled: false },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: admin.id,
+        eventType: 'ADMIN_TOTP_SETUP_STARTED',
+        targetType: 'AdminUser',
+        targetId: admin.id,
+        sourceIp: request.ip,
+      });
+      return {
+        secret,
+        otpauthUrl: totpAuthUrl(admin.email, secret),
+      };
+    },
+  );
+  app.post(
+    '/api/v1/admin/auth/totp/confirm',
+    {
+      preHandler: authenticate,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const parsed = totpConfirmSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_REQUEST' });
+      const admin = await app.prisma.adminUser.findUniqueOrThrow({
+        where: { id: request.admin!.id },
+      });
+      if (admin.totpEnabled)
+        return reply.code(409).send({ code: 'TOTP_ALREADY_ENABLED' });
+      if (!admin.totpSecret)
+        return reply.code(409).send({ code: 'TOTP_NOT_STARTED' });
+      if (!verifyTotp(admin.totpSecret, parsed.data.totp))
+        return reply.code(401).send({ code: 'TOTP_INVALID' });
+      const updated = await app.prisma.adminUser.update({
+        where: { id: admin.id },
+        data: { totpEnabled: true },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: admin.id,
+        eventType: 'ADMIN_TOTP_ENABLED',
+        targetType: 'AdminUser',
+        targetId: admin.id,
+        sourceIp: request.ip,
+      });
+      return { user: publicUser(updated) };
+    },
+  );
+  app.post(
+    '/api/v1/admin/auth/totp/disable',
+    {
+      preHandler: authenticate,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const parsed = totpDisableSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ code: 'INVALID_REQUEST' });
+      const admin = await app.prisma.adminUser.findUniqueOrThrow({
+        where: { id: request.admin!.id },
+      });
+      if (!admin.totpEnabled && !admin.totpSecret)
+        return reply.code(409).send({ code: 'TOTP_NOT_ENABLED' });
+      const matches = await argon2.verify(
+        admin.passwordHash,
+        parsed.data.password,
+      );
+      if (!matches)
+        return reply.code(401).send({ code: 'INVALID_CREDENTIALS' });
+      const totp = parsed.data.totp || undefined;
+      if (admin.totpEnabled) {
+        if (!totp) return reply.code(401).send({ code: 'TOTP_REQUIRED' });
+        if (!admin.totpSecret || !verifyTotp(admin.totpSecret, totp))
+          return reply.code(401).send({ code: 'TOTP_INVALID' });
+      }
+      const updated = await app.prisma.adminUser.update({
+        where: { id: admin.id },
+        data: { totpSecret: null, totpEnabled: false },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: admin.id,
+        eventType: 'ADMIN_TOTP_DISABLED',
+        targetType: 'AdminUser',
+        targetId: admin.id,
+        sourceIp: request.ip,
+      });
+      return { user: publicUser(updated) };
+    },
+  );
   app.get(
     '/api/v1/admin/me',
     { preHandler: authenticate },
@@ -250,24 +567,136 @@ export function registerAuthRoutes(
       return reply.code(201).send({ user: publicUser(user) });
     },
   );
+  app.patch(
+    '/api/v1/admin/users/:id',
+    { preHandler: systemAdmin },
+    async (request, reply) => {
+      const params = userIdParams.safeParse(request.params);
+      const body = patchAdminSchema.safeParse(request.body);
+      if (!params.success || !body.success)
+        return reply.code(400).send({ code: 'INVALID_REQUEST' });
+      const patch = body.data;
+      const result = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.adminUser.findUnique({
+          where: { id: params.data.id },
+        });
+        if (!existing) return { error: 'USER_NOT_FOUND' as const, status: 404 };
+        const nextRole = patch.role ?? existing.role;
+        const nextStatus = patch.status ?? existing.status;
+        if (dropsLastSystemAdmin(existing, nextRole, nextStatus)) {
+          const others = await tx.adminUser.count({
+            where: {
+              id: { not: existing.id },
+              role: 'SYSTEM_ADMIN',
+              status: AdminStatus.ACTIVE,
+            },
+          });
+          if (others === 0)
+            return { error: 'LAST_SYSTEM_ADMIN' as const, status: 409 };
+        }
+        const updated = await tx.adminUser.update({
+          where: { id: existing.id },
+          data: {
+            ...(patch.role ? { role: patch.role } : {}),
+            ...(patch.status ? { status: patch.status } : {}),
+            ...(patch.unlock ? { failedLoginCount: 0, lockedUntil: null } : {}),
+          },
+        });
+        if (patch.status === AdminStatus.INACTIVE)
+          await tx.adminSession.updateMany({
+            where: { adminId: existing.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        return { updated };
+      });
+      if (!('updated' in result))
+        return reply.code(result.status).send({ code: result.error });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'ADMIN_USER_UPDATED',
+        targetType: 'AdminUser',
+        targetId: result.updated.id,
+        sourceIp: request.ip,
+        metadata: {
+          ...(patch.role ? { role: patch.role } : {}),
+          ...(patch.status ? { status: patch.status } : {}),
+          ...(patch.unlock ? { unlocked: true } : {}),
+        },
+      });
+      return { user: publicUser(result.updated) };
+    },
+  );
   app.get(
     '/api/v1/admin/audit-events',
     { preHandler: authenticate },
-    async () => ({
-      events: await app.prisma.auditEvent.findMany({
+    async (request, reply) => {
+      const parsed = parseAuditEventQuery(request.query);
+      if ('error' in parsed)
+        return reply.code(400).send({ code: parsed.error });
+      return {
+        events: await app.prisma.auditEvent.findMany({
+          where: parsed.where,
+          orderBy: { occurredAt: 'desc' },
+          take: AUDIT_LIST_LIMIT,
+          select: {
+            id: true,
+            occurredAt: true,
+            eventType: true,
+            actorType: true,
+            actorId: true,
+            targetType: true,
+            targetId: true,
+            metadata: true,
+          },
+        }),
+      };
+    },
+  );
+  app.get(
+    '/api/v1/admin/audit-events.csv',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const parsed = parseAuditEventQuery(request.query);
+      if ('error' in parsed)
+        return reply.code(400).send({ code: parsed.error });
+      const events = await app.prisma.auditEvent.findMany({
+        where: parsed.where,
         orderBy: { occurredAt: 'desc' },
-        take: 100,
+        take: AUDIT_CSV_LIMIT,
         select: {
-          id: true,
           occurredAt: true,
           eventType: true,
           actorType: true,
           actorId: true,
           targetType: true,
           targetId: true,
-          metadata: true,
         },
-      }),
-    }),
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'REPORT_EXPORTED',
+        targetType: 'Report',
+        targetId: 'audit-events',
+        sourceIp: request.ip,
+        metadata: {
+          report: 'audit-events',
+          format: 'csv',
+          eventType: parsed.filters.eventType ?? null,
+          actorId: parsed.filters.actorId ?? null,
+          targetType: parsed.filters.targetType ?? null,
+          targetId: parsed.filters.targetId ?? null,
+          from: parsed.filters.from ?? null,
+          to: parsed.filters.to ?? null,
+        },
+      });
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        'attachment; filename="audit-events.csv"',
+      );
+      return reply.send(auditEventsCsv(events));
+    },
   );
 }

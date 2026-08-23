@@ -9,6 +9,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
+import { MemoryRouter } from 'react-router';
 import { App } from './App';
 
 vi.mock('qrcode', () => ({
@@ -38,6 +39,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  window.localStorage.removeItem('registration-admin-locale');
 });
 it('shows login when there is no session', async () => {
   vi.stubGlobal(
@@ -49,13 +51,15 @@ it('shows login when there is no session', async () => {
     }),
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
     await screen.findByRole('heading', { name: 'Sign in' }),
@@ -99,12 +103,14 @@ it('does not send a JSON content type for bodyless logout', async () => {
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   expect(
-    await screen.findByRole('heading', { name: 'Import CSV' }),
+    await screen.findByRole('heading', { name: 'Registration dashboard' }),
   ).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
   await waitFor(() =>
@@ -117,6 +123,9 @@ it('does not send a JSON content type for bodyless logout', async () => {
     String(url).endsWith('/api/v1/admin/auth/logout'),
   )!;
   expect((logoutCall[1]!.headers as Headers).has('content-type')).toBe(false);
+  expect((logoutCall[1]!.headers as Headers).get('x-requested-with')).toBe(
+    'XMLHttpRequest',
+  );
 });
 
 it('shows operational failures to registration operators', async () => {
@@ -164,11 +173,13 @@ it('shows operational failures to registration operators', async () => {
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
-  await screen.findByRole('heading', { name: 'Import CSV' });
+  await screen.findByRole('heading', { name: 'Voter records' });
   fireEvent.change(screen.getByLabelText('Unit'), {
     target: { value: 'A-1' },
   });
@@ -184,7 +195,7 @@ it('shows operational failures to registration operators', async () => {
 it('replaces a stale preview after commit revalidation fails', async () => {
   const validPreview = {
     fileHash: 'preview-hash',
-    summary: { total: 1, valid: 1, rejected: 0 },
+    summary: { total: 1, valid: 1, created: 1, updated: 0, rejected: 0 },
     errors: [],
     rows: [
       {
@@ -196,7 +207,7 @@ it('replaces a stale preview after commit revalidation fails', async () => {
   };
   const invalidPreview = {
     ...validPreview,
-    summary: { total: 1, valid: 0, rejected: 1 },
+    summary: { total: 1, valid: 0, created: 0, updated: 0, rejected: 1 },
     rows: [
       {
         row: 2,
@@ -287,13 +298,15 @@ A-1,Owner
     },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/import']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   const fileInput = await screen.findByLabelText('CSV file');
   fireEvent.change(fileInput, { target: { files: [file] } });
@@ -310,14 +323,20 @@ A-1,Owner
     screen.queryByRole('button', { name: 'Commit valid rows' }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByText('Total: 1. Valid: 1. Rejected: 0.'),
+    screen.queryByText(
+      'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+    ),
   ).not.toBeInTheDocument();
   fireEvent.change(fileInput, { target: { files: [file] } });
   fireEvent.submit(fileInput.closest('form')!);
-  await screen.findByText('Total: 1. Valid: 1. Rejected: 0.');
+  await screen.findByText(
+    'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Commit valid rows' }));
   expect(
-    await screen.findByText('Total: 1. Valid: 0. Rejected: 1.'),
+    await screen.findByText(
+      'Total: 1. Created: 0. Updated: 0. Valid: 0. Rejected: 1.',
+    ),
   ).toBeInTheDocument();
   expect(
     screen.getByRole('button', { name: 'Commit valid rows' }),
@@ -328,7 +347,9 @@ A-1,Owner
   );
   fireEvent.change(fileInput, { target: { files: [file] } });
   fireEvent.submit(fileInput.closest('form')!);
-  await screen.findByText('Total: 1. Valid: 1. Rejected: 0.');
+  await screen.findByText(
+    'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+  );
   commitSucceeds = true;
   fireEvent.click(screen.getByRole('button', { name: 'Commit valid rows' }));
   expect(
@@ -366,7 +387,7 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
   });
   const preview = {
     fileHash: 'large-preview',
-    summary: { total: 101, valid: 100, rejected: 1 },
+    summary: { total: 101, valid: 100, created: 100, updated: 0, rejected: 1 },
     errors: Array.from({ length: 101 }, (_, index) => ({
       row: 1,
       field: 'header-' + index,
@@ -414,13 +435,15 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
     },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/import']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   const fileInput = await screen.findByLabelText('CSV file');
   fireEvent.change(fileInput, { target: { files: [file] } });
@@ -491,7 +514,11 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
         status: 200,
         json: async () => ({ scopes: [scope] }),
       };
-    if (path.includes('/api/v1/admin/registrations?'))
+    if (
+      path.includes('/api/v1/admin/registrations') &&
+      !path.includes('/import') &&
+      !path.includes('/activation-token')
+    )
       return {
         ok: true,
         status: 200,
@@ -571,9 +598,11 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   await screen.findByRole('heading', { name: 'Activation tokens' });
   fireEvent.click(
@@ -727,4 +756,612 @@ it('generates, downloads, confirms delivery, and revokes an activation QR', asyn
     expect.stringContaining('/api/v1/admin/registrations/record-1'),
     expect.objectContaining({ method: 'DELETE' }),
   );
+});
+
+it('revokes and reissues an issued credential from the recovery form', async () => {
+  const scope = {
+    id: 'scope-1',
+    name: 'Annual vote',
+    description: null,
+    status: 'ACTIVATION_OPEN',
+    startsAt: '2035-01-01T12:00:00.000Z',
+    endsAt: '2035-01-01T18:00:00.000Z',
+    activationStartsAt: '2035-01-01T10:00:00.000Z',
+    activationEndsAt: '2035-01-01T17:00:00.000Z',
+    credentialExpiresAt: '2035-01-02T00:00:00.000Z',
+    votingWeightsEnabled: false,
+    issuerKeyVersion: '2035-01',
+    version: 1,
+  };
+  let credential: Record<string, unknown> = {
+    id: 'cred-1',
+    votingScopeId: 'scope-1',
+    status: 'ACTIVE',
+    credentialVersion: 1,
+    issuedAt: '2035-01-01T11:00:00.000Z',
+    expiresAt: scope.credentialExpiresAt,
+    revokedAt: null,
+    revocationReason: null,
+    replacedByCredentialId: null,
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith('/api/v1/admin/me'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          user: {
+            id: 'operator-cred',
+            email: 'operator-cred@example.com',
+            role: 'SYSTEM_ADMIN',
+            status: 'ACTIVE',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      };
+    if (path.endsWith('/api/v1/admin/users'))
+      return { ok: true, status: 200, json: async () => ({ users: [] }) };
+    if (path.endsWith('/api/v1/admin/scopes'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ scopes: [scope] }),
+      };
+    if (
+      path.includes('/api/v1/admin/registrations') &&
+      !path.includes('/import') &&
+      !path.includes('/activation-token')
+    )
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          records: [
+            {
+              id: 'record-1',
+              unitNumber: 'A-1',
+              ownerName: 'Owner',
+              email: null,
+              phone: null,
+              votingWeight: '1.0000',
+              eligible: true,
+              status: 'ACTIVE',
+              version: 1,
+              scopeEligibilities: [],
+              activationTokens: [],
+              issuedCredentials: [credential],
+            },
+          ],
+        }),
+      };
+    if (path.endsWith('/api/v1/admin/credentials/cred-1/revoke')) {
+      credential = {
+        ...credential,
+        status: 'REVOKED',
+        revokedAt: new Date().toISOString(),
+        revocationReason: 'Lost device',
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ credential }),
+      };
+    }
+    if (path.endsWith('/api/v1/admin/credentials/cred-1/reissue')) {
+      credential = {
+        ...credential,
+        status: 'REVOKED',
+        revokedAt: new Date().toISOString(),
+        revocationReason: 'Replacement after loss',
+      };
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          credential,
+          activationToken: {
+            id: 'token-2',
+            registrationRecordId: 'record-1',
+            votingScopeId: 'scope-1',
+            tokenPrefixForSupport: 'ijklmnop',
+            status: 'ACTIVE',
+            expiresAt: scope.activationEndsAt,
+            generatedAt: new Date().toISOString(),
+            deliveryMethod: 'PRINT',
+            deliveredAt: null,
+            rawToken: 'replacement-activation-token',
+          },
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(/Credential: Issued/)).toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', { name: 'Issued credential' }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Revocation reason'), {
+    target: { value: 'Lost device' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke credential' }));
+  expect(await screen.findByText('Credential revoked.')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/credentials/cred-1/revoke'),
+    expect.objectContaining({ method: 'POST' }),
+  );
+  fireEvent.change(screen.getByLabelText('Reissue reason'), {
+    target: { value: 'Replacement after loss' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Reissue credential' }));
+  expect(
+    await screen.findByText(
+      'Replacement activation QR generated. The previous credential is revoked.',
+    ),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByText('replacement-activation-token'),
+  ).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/admin/credentials/cred-1/reissue'),
+    expect.objectContaining({ method: 'POST' }),
+  );
+});
+
+it('asks for an authenticator code when login requires TOTP', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ code: 'TOTP_REQUIRED' }),
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Sign in' }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Email'), {
+    target: { value: 'admin@example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'correct-password' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+  expect(
+    await screen.findByText(
+      'Enter the authenticator code to finish signing in.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText('Authenticator code')).toBeInTheDocument();
+});
+
+it('lets a signed-in administrator change their password', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      if (path.endsWith('/api/v1/admin/users'))
+        return { ok: true, status: 200, json: async () => ({ users: [] }) };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/account']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Account security' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Change password' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Set up authenticator' }),
+  ).toBeInTheDocument();
+});
+
+it('shows operational reports and CSV downloads for auditors', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: 'auditor-1',
+              email: 'auditor@example.com',
+              role: 'AUDITOR',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/registration-summary'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              totalRecords: 4,
+              eligibleRecords: 3,
+              ineligibleRecords: 1,
+              activeRecords: 4,
+              inactiveRecords: 0,
+              notYetActivated: 2,
+              byScope: [
+                {
+                  scopeId: 'scope-1',
+                  scopeName: 'Assembly',
+                  eligible: 3,
+                  ineligible: 1,
+                  notYetActivated: 2,
+                },
+              ],
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/activation-summary'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              generated: 5,
+              active: 1,
+              redeemed: 2,
+              expired: 1,
+              revoked: 1,
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/reports/credential-status'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            report: {
+              generatedAt: '2026-08-22T18:00:00.000Z',
+              issued: 2,
+              active: 1,
+              revoked: 1,
+              expired: 0,
+              replaced: 1,
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Operational reports' }),
+  ).toBeInTheDocument();
+  expect(await screen.findByText(/Eligible records: 3/)).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download registration summary' }),
+  ).toHaveAttribute('href', '/api/v1/admin/reports/registration-summary.csv');
+  expect(
+    screen.getByRole('link', { name: 'Download activation summary' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download credential status' }),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', { name: 'Issuer keys' }),
+  ).toBeInTheDocument();
+});
+
+it('hides registration contact fields from auditors', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: 'auditor-1',
+              email: 'auditor@example.com',
+              role: 'AUDITOR',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/registrations'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            records: [
+              {
+                id: 'rec-1',
+                votingWeight: '1.0000',
+                eligible: true,
+                status: 'ACTIVE',
+                version: 1,
+                scopeEligibilities: [],
+                activationTokens: [],
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/public/issuer-keys'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            keys: [
+              {
+                keyVersion: 'dev-2026-01',
+                algorithm: 'RSAPBSSA-SHA384-PSS-Randomized',
+                protocol: 'RSAPBSSA-SHA384-PSS-Randomized',
+                modulusLength: 2048,
+                issuer: 'condominium-registration-service',
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/registrations']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('Protected record')).toBeInTheDocument();
+  expect(screen.queryByText('No email')).not.toBeInTheDocument();
+  expect(screen.queryByText('No phone')).not.toBeInTheDocument();
+});
+
+it('opens a registration from a deep link and keeps a language override', async () => {
+  window.localStorage.setItem('registration-admin-locale', 'es');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/registrations'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            records: [
+              {
+                id: 'rec-1',
+                unitNumber: 'A-101',
+                ownerName: 'Deep Link Owner',
+                votingWeight: '1.0000',
+                eligible: true,
+                status: 'ACTIVE',
+                version: 1,
+                scopeEligibilities: [],
+                activationTokens: [],
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/registrations/rec-1']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByDisplayValue('Deep Link Owner'),
+  ).toBeInTheDocument();
+  expect(document.documentElement.lang).toBe('es');
+  expect(screen.getByLabelText('Idioma')).toHaveValue('es');
+  window.localStorage.removeItem('registration-admin-locale');
+});
+
+it('edits administrator role and deactivates an account', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '1',
+              email: 'admin@example.com',
+              role: 'SYSTEM_ADMIN',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/users/') && init?.method === 'PATCH')
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: '2',
+              email: 'operator@example.com',
+              role: 'AUDITOR',
+              status: 'INACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/users'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            users: [
+              {
+                id: '2',
+                email: 'operator@example.com',
+                role: 'REGISTRATION_OPERATOR',
+                status: 'ACTIVE',
+                totpEnabled: false,
+                lockedUntil: null,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/registrations'))
+        return { ok: true, status: 200, json: async () => ({ records: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={['/administrators']}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('operator@example.com')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+  expect(await screen.findByText('Administrator updated.')).toBeInTheDocument();
 });

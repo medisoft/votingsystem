@@ -244,12 +244,13 @@ Minimum requirements:
 
 * Email and password login.
 * Password hashing using Argon2id.
+* Authenticated password change.
+* Optional TOTP-based multi-factor authentication.
 * Role-based access control.
 * Secure session cookies or short-lived access tokens with refresh-token rotation.
 * Rate limiting.
 * Account lockout or progressive delay after repeated failures.
 * Audit login success and failure.
-* Support for optional TOTP-based multi-factor authentication in a later stage.
 
 Do not use the same authentication mechanism for anonymous voters and administrators.
 
@@ -545,6 +546,8 @@ Define a versioned credential-verification interface.
 * id
 * email
 * passwordHash
+* totpSecret
+* totpEnabled
 * role
 * status
 * failedLoginCount
@@ -865,7 +868,10 @@ Each stage must end with:
 * Tests.
 * Database migrations when applicable.
 * Updated README.
-* Manual verification instructions.
+* Manual verification instructions, only for checks that cannot be covered
+  by simple automation. Those instructions must be administrative UI and other
+  real user interaction. Do not list API calls, curl, Postman, or other
+  request-level steps as manual tests; put those in automated tests.
 * A short list of known limitations.
 
 ---
@@ -910,6 +916,8 @@ Implement:
 * Logout.
 * Session or token refresh.
 * Argon2id password hashing.
+* Authenticated password change.
+* TOTP enrollment, login challenge, and disable.
 * Role middleware.
 * Protected frontend routes.
 * Login audit events.
@@ -918,9 +926,11 @@ Implement:
 Acceptance criteria:
 
 * An administrator can log in and access the dashboard.
+* An administrator can change their password by supplying the current password.
+* An administrator can enroll, confirm, and disable TOTP. When TOTP is enabled, login requires a valid TOTP code.
 * Invalid credentials are rejected.
 * Protected endpoints cannot be accessed anonymously.
-* Password hashes are never exposed.
+* Password hashes and TOTP secrets are never exposed.
 * Authentication tests pass.
 
 ---
@@ -1209,6 +1219,12 @@ Acceptance criteria:
 ---
 
 # 14. Testing Requirements
+
+API, protocol, and security checks belong in automated tests.
+
+Manual README checks are only for administrative UI and other real user
+interaction that cannot be covered by simple automation. Do not treat API
+calls as manual tests.
 
 Include:
 

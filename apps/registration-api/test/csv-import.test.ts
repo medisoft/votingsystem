@@ -150,6 +150,31 @@ A-1,"Unclosed owner`,
     expect(MAX_IMPORT_JSON_BYTES).toBeGreaterThan(MAX_CSV_BYTES * 6);
   });
 
+  it('rejects scope columns unless upsert mode is selected', () => {
+    const csv = `unit_number,owner_name,voting_scope_id
+A-1,Owner,11111111-1111-4111-8111-111111111111
+`;
+    expect(parseRegistrationCsv(csv).errors[0]?.code).toBe(
+      'SCOPE_COLUMNS_REQUIRE_UPSERT',
+    );
+    const upsert = parseRegistrationCsv(csv, { mode: 'upsert' });
+    expect(upsert.errors).toEqual([]);
+    expect(upsert.rows[0]?.data).toMatchObject({
+      unitNumber: 'A-1',
+      votingScopeId: '11111111-1111-4111-8111-111111111111',
+    });
+  });
+
+  it('requires a voting scope id when other scope columns are set', () => {
+    const result = parseRegistrationCsv(
+      `unit_number,owner_name,scope_eligible
+A-1,Owner,true
+`,
+      { mode: 'upsert' },
+    );
+    expect(result.rows[0]?.errors[0]?.code).toBe('SCOPE_ID_REQUIRED');
+  });
+
   it('reports field errors and deterministically rejects later duplicate rows', () => {
     const result = parseRegistrationCsv(
       'unit_number,owner_name,email\nA-1,Owner,owner@example.com\na-1,Other,other@example.com\nB-1,Bad,invalid\n',

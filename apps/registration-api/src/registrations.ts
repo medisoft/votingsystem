@@ -52,6 +52,20 @@ const include = {
       deliveredAt: true,
     },
   },
+  issuedCredentials: {
+    orderBy: { credentialVersion: 'desc' as const },
+    select: {
+      id: true,
+      votingScopeId: true,
+      status: true,
+      credentialVersion: true,
+      issuedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      revocationReason: true,
+      replacedByCredentialId: true,
+    },
+  },
 };
 const auditorSelect = {
   id: true,
@@ -66,6 +80,19 @@ const auditorSelect = {
       eligible: true,
       votingWeight: true,
       votingScope: { select: { id: true, name: true, status: true } },
+    },
+  },
+  issuedCredentials: {
+    orderBy: { credentialVersion: 'desc' as const },
+    select: {
+      id: true,
+      votingScopeId: true,
+      status: true,
+      credentialVersion: true,
+      issuedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      replacedByCredentialId: true,
     },
   },
 } satisfies Prisma.RegistrationRecordSelect;
@@ -145,6 +172,7 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           search: z.string().optional(),
           eligible: z.enum(['true', 'false']).optional(),
           status: z.nativeEnum(RegistrationStatus).optional(),
+          hasActiveToken: z.enum(['true', 'false']).optional(),
         })
         .safeParse(request.query);
       if (!parsed.success)
@@ -157,6 +185,15 @@ export function registerRegistrationRoutes(app: FastifyInstance) {
           deletedAt: null,
           ...(q.eligible ? { eligible: q.eligible === 'true' } : {}),
           ...(q.status ? { status: q.status } : {}),
+          ...(q.hasActiveToken
+            ? {
+                activationTokens: {
+                  [q.hasActiveToken === 'true' ? 'some' : 'none']: {
+                    status: ActivationTokenStatus.ACTIVE,
+                  },
+                },
+              }
+            : {}),
           ...(q.search
             ? {
                 OR: [
