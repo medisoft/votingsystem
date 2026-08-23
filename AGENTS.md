@@ -26,7 +26,10 @@ Rules that apply only to this repository (condominium voting system, Node worksp
 ## Code generation
 
 - When creating new functionallity, if it applies, then show me manual testing steps
-  in addition of the automated tests.
+  in addition of the automated tests. Manual tests are only for checks that cannot
+  be covered by simple automation: administrative UI and other real user
+  interaction. Do not list API calls, curl, Postman, or other request-level
+  steps as manual tests; those belong in automated tests.
 - Split long stages into smaller steps grouped by functionallity to make them more
   manegable
 

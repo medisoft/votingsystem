@@ -868,7 +868,10 @@ Each stage must end with:
 * Tests.
 * Database migrations when applicable.
 * Updated README.
-* Manual verification instructions.
+* Manual verification instructions, only for checks that cannot be covered
+  by simple automation. Those instructions must be administrative UI and other
+  real user interaction. Do not list API calls, curl, Postman, or other
+  request-level steps as manual tests; put those in automated tests.
 * A short list of known limitations.
 
 ---
@@ -1216,6 +1219,12 @@ Acceptance criteria:
 ---
 
 # 14. Testing Requirements
+
+API, protocol, and security checks belong in automated tests.
+
+Manual README checks are only for administrative UI and other real user
+interaction that cannot be covered by simple automation. Do not treat API
+calls as manual tests.
 
 Include:
 
