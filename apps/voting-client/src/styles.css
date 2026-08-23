@@ -1,5 +1,5 @@
 :root {
-  font-family: system-ui, sans-serif;
+  font-family: Inter, system-ui, sans-serif;
   color: #172033;
   background: #f3f6f8;
 }
@@ -12,6 +12,80 @@ body {
 main {
   display: grid;
   min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
-  padding: 2rem;
+  padding: max(2rem, env(safe-area-inset-top))
+    max(2rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
+    max(2rem, env(safe-area-inset-left));
+}
+section {
+  width: min(100%, 32rem);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border: 1px solid #dce4e9;
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 1rem 3rem #17203314;
+}
+.eyebrow {
+  color: #315f7b;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin: 0;
+}
+h1 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  line-height: 1.05;
+  margin: 0.3rem 0 0;
+}
+p {
+  line-height: 1.65;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+.language-select {
+  min-width: 8rem;
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 650;
+}
+input,
+select,
+button {
+  font: inherit;
+  padding: 0.75rem;
+  border: 1px solid #9aaab5;
+  border-radius: 0.45rem;
+}
+button {
+  border-color: #174d69;
+  background: #174d69;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+}
+.secondary {
+  background: white;
+  color: #174d69;
+}
+.actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+a {
+  color: #174d69;
+  font-weight: 700;
+}
+:focus-visible {
+  outline: 3px solid #0b6e99;
+  outline-offset: 2px;
 }
