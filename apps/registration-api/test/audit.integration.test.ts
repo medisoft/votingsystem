@@ -158,5 +158,44 @@ suite('audit integrity and operational reports', () => {
       asOf,
     });
     expect(JSON.stringify(exports)).not.toContain('Report Owner');
+
+    const recordId = created.json().record.id as string;
+    const auditJson = await app.inject({
+      url: `/api/v1/admin/audit-events?targetType=RegistrationRecord&targetId=${recordId}`,
+      headers: { cookie: auditorCookie },
+    });
+    expect(auditJson.statusCode).toBe(200);
+    expect(
+      auditJson
+        .json()
+        .events.every(
+          (event: { targetId: string | null }) => event.targetId === recordId,
+        ),
+    ).toBe(true);
+    const auditCsv = await app.inject({
+      url: `/api/v1/admin/audit-events.csv?targetType=RegistrationRecord&targetId=${recordId}`,
+      headers: { cookie: auditorCookie },
+    });
+    expect(auditCsv.statusCode).toBe(200);
+    expect(auditCsv.headers['content-type']).toMatch(/text\/csv/);
+    expect(auditCsv.body).toContain(
+      '"occurred_at","event_type","actor_type","actor_id","target_type","target_id"',
+    );
+    expect(auditCsv.body).toContain(recordId);
+    expect(auditCsv.body).not.toContain('Report Owner');
+    expect(auditCsv.body).not.toContain('correct-password');
+    const exported = await prisma.auditEvent.findFirstOrThrow({
+      where: {
+        eventType: 'REPORT_EXPORTED',
+        targetId: 'audit-events',
+      },
+      orderBy: { chainIndex: 'desc' },
+    });
+    expect(exported.metadata).toMatchObject({
+      report: 'audit-events',
+      format: 'csv',
+      targetType: 'RegistrationRecord',
+      targetId: recordId,
+    });
   });
 });

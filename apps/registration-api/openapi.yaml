@@ -308,6 +308,15 @@ paths:
       responses:
         '200':
           description: Recent audit events
+  /api/v1/admin/audit-events.csv:
+    get:
+      tags: [audit]
+      security:
+        - adminSession: []
+      summary: Download filtered audit events as CSV
+      responses:
+        '200':
+          description: CSV without metadata or secrets
   /api/v1/admin/scopes:
     get:
       tags: [scopes]

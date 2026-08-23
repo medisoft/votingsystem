@@ -42,8 +42,16 @@ interface AuditEvent {
   occurredAt: string;
   eventType: string;
   actorType: string;
+  actorId: string | null;
   targetType: string;
   targetId: string | null;
+}
+interface IssuerKey {
+  keyVersion: string;
+  algorithm: string;
+  protocol: string;
+  modulusLength: number;
+  issuer: string;
 }
 type Role = 'SYSTEM_ADMIN' | 'REGISTRATION_OPERATOR' | 'AUDITOR';
 interface User {
@@ -395,6 +403,9 @@ function Dashboard({ user }: { user: User }) {
   const [editingRecord, setEditingRecord] = useState<Registration | null>(null);
   const [editingScope, setEditingScope] = useState<Scope | null>(null);
   const [auditEventType, setAuditEventType] = useState('');
+  const [auditActorId, setAuditActorId] = useState('');
+  const [auditTargetType, setAuditTargetType] = useState('');
+  const [auditTargetId, setAuditTargetId] = useState('');
   const [auditFrom, setAuditFrom] = useState('');
   const [auditTo, setAuditTo] = useState('');
   const registrations = useQuery({
@@ -419,10 +430,22 @@ function Dashboard({ user }: { user: User }) {
     },
   });
   const recentAuditEvents = useQuery({
-    queryKey: ['audit-events', auditEventType, auditFrom, auditTo],
+    queryKey: [
+      'audit-events',
+      auditEventType,
+      auditActorId,
+      auditTargetType,
+      auditTargetId,
+      auditFrom,
+      auditTo,
+    ],
     queryFn: () => {
       const params = new URLSearchParams();
       if (auditEventType.trim()) params.set('eventType', auditEventType.trim());
+      if (auditActorId.trim()) params.set('actorId', auditActorId.trim());
+      if (auditTargetType.trim())
+        params.set('targetType', auditTargetType.trim());
+      if (auditTargetId.trim()) params.set('targetId', auditTargetId.trim());
       if (auditFrom) params.set('from', new Date(auditFrom).toISOString());
       if (auditTo) params.set('to', new Date(auditTo).toISOString());
       const query = params.toString();
@@ -431,6 +454,29 @@ function Dashboard({ user }: { user: User }) {
       );
     },
   });
+  const issuerKeys = useQuery({
+    queryKey: ['issuer-keys'],
+    queryFn: () => api<{ keys: IssuerKey[] }>('/api/v1/public/issuer-keys'),
+  });
+  const auditCsvQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    if (auditEventType.trim()) params.set('eventType', auditEventType.trim());
+    if (auditActorId.trim()) params.set('actorId', auditActorId.trim());
+    if (auditTargetType.trim())
+      params.set('targetType', auditTargetType.trim());
+    if (auditTargetId.trim()) params.set('targetId', auditTargetId.trim());
+    if (auditFrom) params.set('from', new Date(auditFrom).toISOString());
+    if (auditTo) params.set('to', new Date(auditTo).toISOString());
+    const query = params.toString();
+    return `/api/v1/admin/audit-events.csv${query ? `?${query}` : ''}`;
+  }, [
+    auditEventType,
+    auditActorId,
+    auditTargetType,
+    auditTargetId,
+    auditFrom,
+    auditTo,
+  ]);
   const registrationReport = useQuery({
     queryKey: ['report', 'registration-summary'],
     queryFn: () =>
@@ -1292,10 +1338,14 @@ function Dashboard({ user }: { user: User }) {
               <span>
                 <strong>{record.unitNumber ?? t('protectedRecord')}</strong>
                 {record.ownerName ? ` · ${record.ownerName}` : ''}
-                <br />
-                {record.email ?? t('noEmail')}
-                {' · '}
-                {record.phone ?? t('noPhone')}
+                {user.role !== 'AUDITOR' && (
+                  <>
+                    <br />
+                    {record.email ?? t('noEmail')}
+                    {' · '}
+                    {record.phone ?? t('noPhone')}
+                  </>
+                )}
               </span>
               <span>
                 {record.eligible ? t('eligible') : t('notEligible')} ·{' '}
@@ -2217,12 +2267,51 @@ function Dashboard({ user }: { user: User }) {
         ) : (
           <p>{t('restrictedRoleNotice')}</p>
         )}
+        <h2>{t('issuerKeys')}</h2>
+        <ul>
+          {issuerKeys.data?.keys?.length
+            ? issuerKeys.data.keys.map((key) => (
+                <li key={key.keyVersion}>
+                  {t('issuerKeyVersion')}: {key.keyVersion}
+                  <br />
+                  {t('issuerAlgorithm')}: {key.algorithm}
+                  <br />
+                  {t('issuerProtocol')}: {key.protocol}
+                  <br />
+                  {t('issuerModulus')}: {key.modulusLength}
+                  <br />
+                  {key.issuer}
+                </li>
+              ))
+            : t('noIssuerKeys')}
+        </ul>
         <h2>{t('auditEvents')}</h2>
         <label>
           {t('auditEventType')}
           <input
             value={auditEventType}
             onChange={(event) => setAuditEventType(event.target.value)}
+          />
+        </label>
+        <label>
+          {t('auditActorId')}
+          <input
+            value={auditActorId}
+            onChange={(event) => setAuditActorId(event.target.value)}
+          />
+        </label>
+        <label>
+          {t('auditTargetType')}
+          <input
+            value={auditTargetType}
+            onChange={(event) => setAuditTargetType(event.target.value)}
+          />
+        </label>
+        <label>
+          {t('auditTargetId')}
+          <input
+            value={auditTargetId}
+            onChange={(event) => setAuditTargetId(event.target.value)}
           />
         </label>
         <label>
@@ -2241,13 +2330,18 @@ function Dashboard({ user }: { user: User }) {
             onChange={(event) => setAuditTo(event.target.value)}
           />
         </label>
+        <p>
+          <a href={`${apiUrl}${auditCsvQuery}`}>{t('downloadAuditEvents')}</a>
+        </p>
         <ul>
           {recentAuditEvents.data?.events?.length
             ? recentAuditEvents.data.events.map((event) => (
                 <li key={event.id}>
                   {new Date(event.occurredAt).toLocaleString(locale)} ·{' '}
                   {event.eventType}
+                  {event.actorId ? ` · ${event.actorId}` : ''}
                   {event.targetType ? ` · ${event.targetType}` : ''}
+                  {event.targetId ? ` · ${event.targetId}` : ''}
                 </li>
               ))
             : t('noAuditEvents')}

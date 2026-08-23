@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 13: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, and administrator account editing.
+Registration and Credential Issuance Service through Stage 14: Fastify API, React administrative shell, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, administrator account editing, and an audit-export / issuer-key administrative view.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ The API uses otpauth 9.5.1 for TOTP instead of a custom RFC 6238 implementation.
 ## Known limitations
 
 - Voting scopes, voter records, CSV imports, activation tokens, prototype credential issuance, revocation, and reissuance are implemented. Anonymous voting remains for later stages.
-- The dashboard lists recent audit events with type and date filters; it is not a full forensic viewer.
+- Audit CSV export is capped at 1,000 rows and is not a full forensic archive.
 
 ## Stage 3 voting scopes
 
@@ -249,3 +249,14 @@ Pending manual tests:
 
 - Create an operator, change the role to auditor, deactivate, and confirm that account cannot sign in.
 - Confirm the seed `admin@example.com` cannot deactivate itself when it is the only system administrator.
+
+## Stage 14 audit export and issuer keys
+
+The audit panel filters by event type, actor id, target type, target id, and date range. `GET /api/v1/admin/audit-events.csv` uses the same filters, omits metadata (no owner names, tokens, or passwords), and writes `REPORT_EXPORTED` with `{ report: "audit-events", format: "csv" }` plus the filter values. JSON listing still returns at most 100 rows; CSV export returns at most 1,000.
+
+The dashboard shows published issuer public-key metadata from `GET /api/v1/public/issuer-keys` (version, algorithm, protocol, modulus length). Auditors can read this and download audit CSV. They still cannot generate tokens. The registration list no longer shows “No email / No phone” placeholders for auditors.
+
+Pending manual tests:
+
+- Sign in as an auditor: confirm records hide owner contact fields, issuer keys are visible, and generate-token controls are absent.
+- As an administrator, filter audit events by a registration id and download the CSV. Confirm it contains that id and no owner names.

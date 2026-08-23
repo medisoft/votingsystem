@@ -491,6 +491,53 @@ export const messages = {
     en: 'To',
     es: 'Hasta',
   },
+  auditActorId: {
+    description:
+      'Filter label for the administrator who produced an audit event.',
+    en: 'Actor id',
+    es: 'Id del actor',
+  },
+  auditTargetType: {
+    description:
+      'Filter label for the kind of record an audit event refers to.',
+    en: 'Target type',
+    es: 'Tipo de destino',
+  },
+  auditTargetId: {
+    description: 'Filter label for the record id an audit event refers to.',
+    en: 'Target id',
+    es: 'Id de destino',
+  },
+  downloadAuditEvents: {
+    description: 'Link that downloads filtered audit events as CSV.',
+    en: 'Download audit events',
+    es: 'Descargar eventos de auditoría',
+  },
+  issuerKeys: {
+    description: 'Heading for published credential-issuer public keys.',
+    en: 'Issuer keys',
+    es: 'Claves del emisor',
+  },
+  issuerAlgorithm: {
+    description: 'Label for the issuer signature algorithm.',
+    en: 'Algorithm',
+    es: 'Algoritmo',
+  },
+  issuerProtocol: {
+    description: 'Label for the credential issuance protocol.',
+    en: 'Protocol',
+    es: 'Protocolo',
+  },
+  issuerModulus: {
+    description: 'Label for the issuer RSA modulus length in bits.',
+    en: 'Modulus length',
+    es: 'Longitud del módulo',
+  },
+  noIssuerKeys: {
+    description: 'Empty state when no issuer public keys are published.',
+    en: 'No issuer keys are published.',
+    es: 'No hay claves de emisor publicadas.',
+  },
   noAuditEvents: {
     description: 'Empty state when no audit events match the current view.',
     en: 'No audit events.',

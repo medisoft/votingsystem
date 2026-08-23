@@ -4,6 +4,7 @@ import argon2 from 'argon2';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { appendAudit } from './audit.js';
+import { rowsToCsv } from './reports.js';
 import { generateTotpSecret, totpAuthUrl, verifyTotp } from './totp.js';
 
 const COOKIE = 'registration_session';
@@ -42,6 +43,82 @@ const patchAdminSchema = z
       value.unlock === true,
   );
 const userIdParams = z.object({ id: z.string().uuid() });
+const AUDIT_LIST_LIMIT = 100;
+const AUDIT_CSV_LIMIT = 1000;
+const auditEventQuerySchema = z.object({
+  targetId: z.string().min(1).max(100).optional(),
+  targetType: z.string().trim().min(1).max(100).optional(),
+  eventType: z.string().trim().min(1).max(100).optional(),
+  actorId: z.string().uuid().optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+});
+
+/**
+ * Parses audit-event list filters shared by JSON and CSV endpoints.
+ *
+ * @param query - Raw Fastify querystring.
+ * @returns Prisma where input, or an error when the query is invalid.
+ */
+function parseAuditEventQuery(query: unknown) {
+  const parsed = auditEventQuerySchema.safeParse(query);
+  if (!parsed.success) return { error: 'INVALID_QUERY' as const };
+  const from = parsed.data.from ? new Date(parsed.data.from) : undefined;
+  const to = parsed.data.to ? new Date(parsed.data.to) : undefined;
+  if (from && to && from > to) return { error: 'INVALID_QUERY' as const };
+  return {
+    filters: parsed.data,
+    where: {
+      ...(parsed.data.targetId ? { targetId: parsed.data.targetId } : {}),
+      ...(parsed.data.targetType ? { targetType: parsed.data.targetType } : {}),
+      ...(parsed.data.eventType ? { eventType: parsed.data.eventType } : {}),
+      ...(parsed.data.actorId ? { actorId: parsed.data.actorId } : {}),
+      ...(from || to
+        ? {
+            occurredAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Renders audit events as CSV without metadata or secrets.
+ *
+ * @param events - Selected audit rows in display order.
+ */
+function auditEventsCsv(
+  events: Array<{
+    occurredAt: Date;
+    eventType: string;
+    actorType: string;
+    actorId: string | null;
+    targetType: string;
+    targetId: string | null;
+  }>,
+): string {
+  return rowsToCsv(
+    [
+      'occurred_at',
+      'event_type',
+      'actor_type',
+      'actor_id',
+      'target_type',
+      'target_id',
+    ],
+    events.map((event) => [
+      event.occurredAt.toISOString(),
+      event.eventType,
+      event.actorType,
+      event.actorId ?? '',
+      event.targetType,
+      event.targetId ?? '',
+    ]),
+  );
+}
 const hashToken = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 const publicUser = (user: {
@@ -554,44 +631,14 @@ export function registerAuthRoutes(
     '/api/v1/admin/audit-events',
     { preHandler: authenticate },
     async (request, reply) => {
-      const parsed = z
-        .object({
-          targetId: z.string().min(1).max(100).optional(),
-          targetType: z.string().trim().min(1).max(100).optional(),
-          eventType: z.string().trim().min(1).max(100).optional(),
-          actorId: z.string().uuid().optional(),
-          from: z.string().datetime({ offset: true }).optional(),
-          to: z.string().datetime({ offset: true }).optional(),
-        })
-        .safeParse(request.query);
-      if (!parsed.success)
-        return reply.code(400).send({ code: 'INVALID_QUERY' });
-      const from = parsed.data.from ? new Date(parsed.data.from) : undefined;
-      const to = parsed.data.to ? new Date(parsed.data.to) : undefined;
-      if (from && to && from > to)
-        return reply.code(400).send({ code: 'INVALID_QUERY' });
+      const parsed = parseAuditEventQuery(request.query);
+      if ('error' in parsed)
+        return reply.code(400).send({ code: parsed.error });
       return {
         events: await app.prisma.auditEvent.findMany({
-          where: {
-            ...(parsed.data.targetId ? { targetId: parsed.data.targetId } : {}),
-            ...(parsed.data.targetType
-              ? { targetType: parsed.data.targetType }
-              : {}),
-            ...(parsed.data.eventType
-              ? { eventType: parsed.data.eventType }
-              : {}),
-            ...(parsed.data.actorId ? { actorId: parsed.data.actorId } : {}),
-            ...(from || to
-              ? {
-                  occurredAt: {
-                    ...(from ? { gte: from } : {}),
-                    ...(to ? { lte: to } : {}),
-                  },
-                }
-              : {}),
-          },
+          where: parsed.where,
           orderBy: { occurredAt: 'desc' },
-          take: 100,
+          take: AUDIT_LIST_LIMIT,
           select: {
             id: true,
             occurredAt: true,
@@ -604,6 +651,52 @@ export function registerAuthRoutes(
           },
         }),
       };
+    },
+  );
+  app.get(
+    '/api/v1/admin/audit-events.csv',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const parsed = parseAuditEventQuery(request.query);
+      if ('error' in parsed)
+        return reply.code(400).send({ code: parsed.error });
+      const events = await app.prisma.auditEvent.findMany({
+        where: parsed.where,
+        orderBy: { occurredAt: 'desc' },
+        take: AUDIT_CSV_LIMIT,
+        select: {
+          occurredAt: true,
+          eventType: true,
+          actorType: true,
+          actorId: true,
+          targetType: true,
+          targetId: true,
+        },
+      });
+      await appendAudit(app.prisma, {
+        actorType: ActorType.ADMIN,
+        actorId: request.admin!.id,
+        eventType: 'REPORT_EXPORTED',
+        targetType: 'Report',
+        targetId: 'audit-events',
+        sourceIp: request.ip,
+        metadata: {
+          report: 'audit-events',
+          format: 'csv',
+          eventType: parsed.filters.eventType ?? null,
+          actorId: parsed.filters.actorId ?? null,
+          targetType: parsed.filters.targetType ?? null,
+          targetId: parsed.filters.targetId ?? null,
+          from: parsed.filters.from ?? null,
+          to: parsed.filters.to ?? null,
+        },
+      });
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        'attachment; filename="audit-events.csv"',
+      );
+      return reply.send(auditEventsCsv(events));
     },
   );
 }

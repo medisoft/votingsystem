@@ -1087,6 +1087,97 @@ it('shows operational reports and CSV downloads for auditors', async () => {
   expect(
     screen.getByRole('link', { name: 'Download credential status' }),
   ).toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', { name: 'Issuer keys' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download audit events' }),
+  ).toHaveAttribute('href', '/api/v1/admin/audit-events.csv');
+});
+
+it('hides registration contact fields from auditors', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/admin/me'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: {
+              id: 'auditor-1',
+              email: 'auditor@example.com',
+              role: 'AUDITOR',
+              status: 'ACTIVE',
+              totpEnabled: false,
+              lockedUntil: null,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        };
+      if (path.includes('/api/v1/admin/registrations'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            records: [
+              {
+                id: 'rec-1',
+                votingWeight: '1.0000',
+                eligible: true,
+                status: 'ACTIVE',
+                version: 1,
+                scopeEligibilities: [],
+                activationTokens: [],
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/public/issuer-keys'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            keys: [
+              {
+                keyVersion: 'dev-2026-01',
+                algorithm: 'RSAPBSSA-SHA384-PSS-Randomized',
+                protocol: 'RSAPBSSA-SHA384-PSS-Randomized',
+                modulusLength: 2048,
+                issuer: 'condominium-registration-service',
+              },
+            ],
+          }),
+        };
+      if (path.endsWith('/api/v1/admin/scopes'))
+        return { ok: true, status: 200, json: async () => ({ scopes: [] }) };
+      if (path.includes('/api/v1/admin/audit-events'))
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
+      if (path.includes('/api/v1/admin/reports/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ report: { eligibleRecords: 0 } }),
+        };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }),
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <App />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText('Protected record')).toBeInTheDocument();
+  expect(screen.queryByText('No email')).not.toBeInTheDocument();
+  expect(screen.queryByText('No phone')).not.toBeInTheDocument();
+  expect(
+    await screen.findByText(/Issuer key version: dev-2026-01/),
+  ).toBeInTheDocument();
 });
 
 it('edits administrator role and deactivates an account', async () => {
