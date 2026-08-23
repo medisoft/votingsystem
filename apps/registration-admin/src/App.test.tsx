@@ -195,7 +195,7 @@ it('shows operational failures to registration operators', async () => {
 it('replaces a stale preview after commit revalidation fails', async () => {
   const validPreview = {
     fileHash: 'preview-hash',
-    summary: { total: 1, valid: 1, rejected: 0 },
+    summary: { total: 1, valid: 1, created: 1, updated: 0, rejected: 0 },
     errors: [],
     rows: [
       {
@@ -207,7 +207,7 @@ it('replaces a stale preview after commit revalidation fails', async () => {
   };
   const invalidPreview = {
     ...validPreview,
-    summary: { total: 1, valid: 0, rejected: 1 },
+    summary: { total: 1, valid: 0, created: 0, updated: 0, rejected: 1 },
     rows: [
       {
         row: 2,
@@ -323,14 +323,20 @@ A-1,Owner
     screen.queryByRole('button', { name: 'Commit valid rows' }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByText('Total: 1. Valid: 1. Rejected: 0.'),
+    screen.queryByText(
+      'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+    ),
   ).not.toBeInTheDocument();
   fireEvent.change(fileInput, { target: { files: [file] } });
   fireEvent.submit(fileInput.closest('form')!);
-  await screen.findByText('Total: 1. Valid: 1. Rejected: 0.');
+  await screen.findByText(
+    'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Commit valid rows' }));
   expect(
-    await screen.findByText('Total: 1. Valid: 0. Rejected: 1.'),
+    await screen.findByText(
+      'Total: 1. Created: 0. Updated: 0. Valid: 0. Rejected: 1.',
+    ),
   ).toBeInTheDocument();
   expect(
     screen.getByRole('button', { name: 'Commit valid rows' }),
@@ -341,7 +347,9 @@ A-1,Owner
   );
   fireEvent.change(fileInput, { target: { files: [file] } });
   fireEvent.submit(fileInput.closest('form')!);
-  await screen.findByText('Total: 1. Valid: 1. Rejected: 0.');
+  await screen.findByText(
+    'Total: 1. Created: 1. Updated: 0. Valid: 1. Rejected: 0.',
+  );
   commitSucceeds = true;
   fireEvent.click(screen.getByRole('button', { name: 'Commit valid rows' }));
   expect(
@@ -379,7 +387,7 @@ it('paginates every CSV preview row and exposes errors after row 100', async () 
   });
   const preview = {
     fileHash: 'large-preview',
-    summary: { total: 101, valid: 100, rejected: 1 },
+    summary: { total: 101, valid: 100, created: 100, updated: 0, rejected: 1 },
     errors: Array.from({ length: 101 }, (_, index) => ({
       row: 1,
       field: 'header-' + index,

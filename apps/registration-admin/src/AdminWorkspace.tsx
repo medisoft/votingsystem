@@ -88,6 +88,10 @@ const importErrorMessage = {
   INVALID_FIELD: 'importErrorInvalidField',
   DUPLICATE_IN_FILE: 'importErrorDuplicateInFile',
   DUPLICATE_EXISTING: 'importErrorDuplicateExisting',
+  SCOPE_COLUMNS_REQUIRE_UPSERT: 'importErrorScopeColumns',
+  RECORD_DELETED: 'importErrorRecordDeleted',
+  INVALID_SCOPE: 'importErrorInvalidScope',
+  SCOPE_ID_REQUIRED: 'importErrorScopeIdRequired',
 } as const;
 function localizeImportError(
   t: (key: MessageKey, values?: Record<string, string | number>) => string,
@@ -130,6 +134,7 @@ export function AdminWorkspace({
     null,
   );
   const [importPreviewPage, setImportPreviewPage] = useState(0);
+  const [importMode, setImportMode] = useState<'create' | 'upsert'>('create');
   const [totpSetup, setTotpSetup] = useState<{
     secret: string;
     otpauthUrl: string;
@@ -436,7 +441,10 @@ export function AdminWorkspace({
     }) =>
       api<{ preview: CsvImportPreview }>(
         '/api/v1/admin/registrations/import/preview',
-        { method: 'POST', body: JSON.stringify(source) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ ...source, mode: importMode }),
+        },
       ),
     onSuccess: ({ preview }, { source, selection }) => {
       if (selection !== importSelection.current) return;
@@ -454,7 +462,7 @@ export function AdminWorkspace({
     mutationFn: (source: { fileName: string; csv: string }) =>
       api<CsvImportResult>('/api/v1/admin/registrations/import', {
         method: 'POST',
-        body: JSON.stringify(source),
+        body: JSON.stringify({ ...source, mode: importMode }),
       }),
     onSuccess: (result) => {
       setImportSource(null);
@@ -1301,6 +1309,21 @@ export function AdminWorkspace({
           <p>{t('csvImportHelp')}</p>
           <form onSubmit={(event) => void previewCsv(event)}>
             <label>
+              {t('importMode')}
+              <select
+                value={importMode}
+                onChange={(event) => {
+                  setImportMode(event.target.value as 'create' | 'upsert');
+                  setImportPreview(null);
+                  setImportSource(null);
+                  setImportResult(null);
+                }}
+              >
+                <option value="create">{t('importModeCreate')}</option>
+                <option value="upsert">{t('importModeUpsert')}</option>
+              </select>
+            </label>
+            <label>
               {t('csvFile')}
               <input
                 name="csvFile"
@@ -1327,6 +1350,8 @@ export function AdminWorkspace({
               <p role="status">
                 {t('importSummary', {
                   total: importPreview.summary.total,
+                  created: importPreview.summary.created ?? 0,
+                  updated: importPreview.summary.updated ?? 0,
                   valid: importPreview.summary.valid,
                   rejected: importPreview.summary.rejected,
                 })}

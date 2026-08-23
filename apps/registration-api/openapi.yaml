@@ -443,6 +443,21 @@ paths:
       security:
         - adminSession: []
       summary: Preview a registration CSV
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, csv]
+              properties:
+                fileName:
+                  type: string
+                csv:
+                  type: string
+                mode:
+                  type: string
+                  enum: [create, upsert]
       responses:
         '200':
           description: Preview summary and row errors
@@ -452,9 +467,26 @@ paths:
       security:
         - adminSession: []
       summary: Commit a registration CSV
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, csv]
+              properties:
+                fileName:
+                  type: string
+                csv:
+                  type: string
+                mode:
+                  type: string
+                  enum: [create, upsert]
       responses:
         '201':
           description: Import summary
+        '200':
+          description: Idempotent upsert of previously committed file content
   /api/v1/admin/registration-imports/{id}/errors.csv:
     get:
       tags: [imports]

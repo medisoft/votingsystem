@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 15: Fastify API, React administrative shell with routed pages and a language selector, PostgreSQL through Prisma, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit verification, operational reports, privacy hardening, OpenAPI, and administrator account editing.
+Registration and Credential Issuance Service through Stage 16: Fastify API, React administrative shell with routed pages and a language selector, PostgreSQL through Prisma, CSV create/upsert import, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit, reports, privacy hardening, and OpenAPI.
 
 ## Requirements
 
@@ -96,7 +96,7 @@ Required headers are `unit_number` and `owner_name`. Unit identifiers are normal
 
 Invalid rows show their exact CSV row and field. Valid rows can still be committed, and the resulting error report can be downloaded as CSV without including the rejected source values. Existing units and later duplicate units in the same file are rejected; the first valid occurrence wins.
 
-Known limitations: imports create new registration records only; updating existing units and assigning per-scope eligibility through CSV are deferred. Error explanations are localized in the UI, while error-report codes remain stable English API identifiers.
+Error explanations are localized in the UI, while error-report codes remain stable English API identifiers. CSV import can create only, or create-or-update (`mode=upsert`) including optional per-scope eligibility columns.
 
 ## Stage 6 activation-token lifecycle and QR delivery
 
@@ -279,3 +279,13 @@ Pending manual tests:
 
 - Desktop and tablet widths on login, dashboard, registration detail, and QR delivery.
 - Switch language EN ↔ ES, reload, and confirm dates and role labels stay in the selected language.
+
+## Stage 16 CSV upsert and per-scope eligibility
+
+Preview and commit accept `mode`: `create` (default) or `upsert`. Create still rejects existing units (`DUPLICATE_EXISTING`) and identical file hashes (`IMPORT_ALREADY_COMMITTED`). Upsert matches canonical uppercase `unit_number`, updates allowed fields, and creates missing units. Soft-deleted units are restored only when `status` is explicitly `ACTIVE`.
+
+Optional upsert columns: `voting_scope_id`, `scope_eligible`, `scope_voting_weight`. Invalid scope ids are row-level errors; other valid rows can still commit. Repeating the same upsert file content returns the previous import summary with HTTP 200 instead of creating duplicates. Preview summaries include created, updated, valid, and rejected counts.
+
+Pending manual tests:
+
+- Preview an upsert file that updates one existing unit and creates another, confirm created/updated/rejected counts, commit, and check the registration list.

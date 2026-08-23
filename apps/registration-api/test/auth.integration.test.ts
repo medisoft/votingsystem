@@ -884,6 +884,8 @@ suite('administrative authentication', () => {
     expect(preview.json().preview.summary).toEqual({
       total: 3,
       valid: 1,
+      created: 1,
+      updated: 0,
       rejected: 2,
     });
     expect(preview.json().preview.rows[1].errors[0]).toMatchObject({
@@ -2290,6 +2292,99 @@ INVALID-ONLY,
         'VOTING_SCOPE_ROLLED_BACK',
       ]),
     );
+  });
+
+  it('upserts existing units and assigns per-scope eligibility from CSV', async () => {
+    const administrator = await prisma.adminUser.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+    });
+    const rawToken = randomBytes(32).toString('base64url');
+    await prisma.adminSession.create({
+      data: {
+        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        adminId: administrator.id,
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
+      },
+    });
+    const cookie = `registration_session=${rawToken}`;
+    await prisma.registrationRecord.create({
+      data: {
+        unitNumber: 'UPSERT-601',
+        ownerName: 'Original owner',
+        votingWeight: new Prisma.Decimal('1.0000'),
+      },
+    });
+    const now = Date.now();
+    const scope = await prisma.votingScope.create({
+      data: {
+        name: 'Upsert scope',
+        status: 'REGISTRATION_OPEN',
+        startsAt: new Date(now + 3_600_000),
+        endsAt: new Date(now + 7_200_000),
+        activationStartsAt: new Date(now - 3_600_000),
+        activationEndsAt: new Date(now + 5_400_000),
+        credentialExpiresAt: new Date(now + 86_400_000),
+        issuerKeyVersion: config.ISSUER_KEY_VERSION,
+      },
+    });
+    const csv = `unit_number,owner_name,voting_scope_id,scope_eligible,scope_voting_weight
+UPSERT-601,Updated owner,${scope.id},true,2.5000
+UPSERT-602,Created owner,${scope.id},false,1.0000
+`;
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import/preview',
+      headers: { cookie },
+      payload: { fileName: 'upsert.csv', csv, mode: 'upsert' },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().preview.summary).toMatchObject({
+      created: 1,
+      updated: 1,
+      valid: 2,
+      rejected: 0,
+    });
+    const committed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import',
+      headers: { cookie },
+      payload: { fileName: 'upsert.csv', csv, mode: 'upsert' },
+    });
+    expect(committed.statusCode).toBe(201);
+    expect(
+      await prisma.registrationRecord.findUniqueOrThrow({
+        where: { unitNumber: 'UPSERT-601' },
+      }),
+    ).toMatchObject({ ownerName: 'Updated owner' });
+    expect(
+      await prisma.scopeEligibility.findMany({
+        where: { votingScopeId: scope.id },
+      }),
+    ).toHaveLength(2);
+    const repeated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import',
+      headers: { cookie },
+      payload: { fileName: 'upsert-again.csv', csv, mode: 'upsert' },
+    });
+    expect(repeated.statusCode).toBe(200);
+    expect(repeated.json().import.id).toBe(committed.json().import.id);
+    const invalidScope = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/registrations/import/preview',
+      headers: { cookie },
+      payload: {
+        fileName: 'bad-scope.csv',
+        mode: 'upsert',
+        csv: `unit_number,owner_name,voting_scope_id
+UPSERT-603,Owner,11111111-1111-4111-8111-111111111111
+`,
+      },
+    });
+    expect(invalidScope.json().preview.rows[0].errors[0].code).toBe(
+      'INVALID_SCOPE',
+    );
+    expect(invalidScope.json().preview.summary.valid).toBe(0);
   });
 
   it('exposes public scope status without personal data', async () => {

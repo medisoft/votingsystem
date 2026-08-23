@@ -108,7 +108,13 @@ export interface IssuerKey {
 
 export interface CsvImportPreview {
   fileHash: string;
-  summary: { total: number; valid: number; rejected: number };
+  summary: {
+    total: number;
+    valid: number;
+    created?: number;
+    updated?: number;
+    rejected: number;
+  };
   errors: Array<{ row: number; field: string; code: string; message: string }>;
   rows: Array<{
     row: number;

@@ -990,6 +990,21 @@ export const messages = {
     en: 'CSV file',
     es: 'Archivo CSV',
   },
+  importMode: {
+    description: 'Label for choosing create-only or upsert CSV import.',
+    en: 'Import mode',
+    es: 'Modo de importación',
+  },
+  importModeCreate: {
+    description: 'CSV import mode that only creates new units.',
+    en: 'Create new units only',
+    es: 'Solo crear unidades nuevas',
+  },
+  importModeUpsert: {
+    description: 'CSV import mode that creates or updates units.',
+    en: 'Create or update units',
+    es: 'Crear o actualizar unidades',
+  },
   previewImport: {
     description:
       'Button that uploads and validates a CSV without saving records.',
@@ -1009,8 +1024,8 @@ export const messages = {
   importSummary: {
     description:
       'CSV preview summary with substituted total, valid, and rejected row counts.',
-    en: 'Total: {total}. Valid: {valid}. Rejected: {rejected}.',
-    es: 'Total: {total}. Válidas: {valid}. Rechazadas: {rejected}.',
+    en: 'Total: {total}. Created: {created}. Updated: {updated}. Valid: {valid}. Rejected: {rejected}.',
+    es: 'Total: {total}. Creadas: {created}. Actualizadas: {updated}. Válidas: {valid}. Rechazadas: {rejected}.',
   },
   importPreviewRange: {
     description:
@@ -1151,6 +1166,29 @@ export const messages = {
       'CSV validation message when the unit already exists in registration records.',
     en: 'The unit already exists.',
     es: 'La unidad ya existe.',
+  },
+  importErrorScopeColumns: {
+    description:
+      'CSV validation message when scope columns are used without upsert mode.',
+    en: 'Scope columns can only be imported when creating or updating units.',
+    es: 'Las columnas de alcance solo se pueden importar al crear o actualizar unidades.',
+  },
+  importErrorRecordDeleted: {
+    description:
+      'CSV validation message when a soft-deleted unit is updated without ACTIVE status.',
+    en: 'Set status to ACTIVE to restore a deactivated unit.',
+    es: 'Establece el estado en ACTIVE para restaurar una unidad desactivada.',
+  },
+  importErrorInvalidScope: {
+    description: 'CSV validation message when voting_scope_id does not exist.',
+    en: 'The voting scope does not exist.',
+    es: 'El alcance de votación no existe.',
+  },
+  importErrorScopeIdRequired: {
+    description:
+      'CSV validation message when scope fields are set without voting_scope_id.',
+    en: 'voting_scope_id is required when scope columns are set.',
+    es: 'voting_scope_id es obligatorio cuando hay columnas de alcance.',
   },
   issuedCredential: {
     description: 'Heading for the selected issued voting credential.',
