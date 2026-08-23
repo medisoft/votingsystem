@@ -1,6 +1,6 @@
 # Condominium Voting System
 
-Registration and Credential Issuance Service through Stage 16: Fastify API, React administrative shell with routed pages and a language selector, PostgreSQL through Prisma, CSV create/upsert import, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit, reports, privacy hardening, and OpenAPI.
+Registration and Credential Issuance Service through Stage 17: Fastify API, React administrative shell with routed pages and a language selector, PostgreSQL through Prisma, CSV create/upsert import, activation tokens, experimental RSA partially-blind credential issuance, revocation, hash-chained audit, reports, privacy hardening, OpenAPI, and production CSP/TLS/secret documentation.
 
 ## Requirements
 
@@ -171,7 +171,7 @@ Compose uses split PostgreSQL roles: `voting` owns migrations and seed, `registr
 
 The API uses @fastify/helmet 13.1.1 instead of hand-written header middleware. It is the official Fastify 5 wrapper around Helmet (MIT, actively maintained). Headers include `Content-Security-Policy: default-src 'none';frame-ancestors 'none';base-uri 'none';form-action 'none'`. CSRF protection for cookie-authenticated `/api/v1/admin` writes is Origin/Referer matching `ADMIN_ORIGIN`, plus SameSite=Strict cookies and `X-Requested-With: XMLHttpRequest` from the administrative UI. Public activation is excluded; it authenticates with the one-time token, not the session cookie.
 
-CI runs `npm run audit:deps` (`npm audit --omit=dev --audit-level=critical` on the app workspaces). Fastify 5.12.1, find-my-way 9.9.0, and fast-uri 3.1.5 address router and URI advisories. Remaining high findings in `npm audit` come from the Prisma 6.19 CLI (`deepmerge-ts`); do not downgrade Prisma to 6.12 to silence them. Threat model, retention, and backup encryption: `docs/THREAT_MODEL.md`, `docs/DATA_RETENTION.md`, `docs/BACKUP_ENCRYPTION.md`.
+CI runs `npm run audit:deps` (`npm audit --omit=dev --audit-level=critical` on the app workspaces). Fastify 5.12.1, find-my-way 9.9.0, and fast-uri 3.1.5 address router and URI advisories. Remaining high findings in `npm audit` come from the Prisma 6.19 CLI (`deepmerge-ts`); do not downgrade Prisma to 6.12 to silence them. Threat model, retention, backup encryption, and production TLS/secrets: `docs/THREAT_MODEL.md`, `docs/DATA_RETENTION.md`, `docs/BACKUP_ENCRYPTION.md`, `docs/PRODUCTION.md`.
 
 Passed manual tests:
 
@@ -185,9 +185,8 @@ Passed manual tests:
 Known limitations:
 
 - Local Docker credentials remain development-only. Recreate the Postgres volume (or rely on `db:grant-roles`) after pulling this stage so split roles exist.
-- The admin CSP meta tag allows `'unsafe-eval'` for Vite HMR. Production static hosting should serve a stricter CSP without eval.
-- Hash-chained audit events are archived operationally, not physically pruned.
-- HTTPS termination and production secret storage remain deployment concerns.
+- Hash-chained audit events are archived operationally, not physically pruned. `npm run audit:retain` reports the live window and does not delete rows.
+- TLS termination and secret storage are operator responsibilities; see `docs/PRODUCTION.md`.
 
 ## Stage 11 blind credential prototype (experimental)
 
@@ -289,3 +288,14 @@ Optional upsert columns: `voting_scope_id`, `scope_eligible`, `scope_voting_weig
 Pending manual tests:
 
 - Preview an upsert file that updates one existing unit and creates another, confirm created/updated/rejected counts, commit, and check the registration list.
+
+## Stage 17 production CSP and deployment notes
+
+The development `index.html` CSP still allows `'unsafe-eval'` for Vite HMR. `npm run build -w @voting/registration-admin` replaces that meta tag with a policy whose `script-src` is `'self'` only. Automated tests compare the source HTML to `DEV_ADMIN_CSP` and assert the production transform contains no eval.
+
+TLS termination, issuer-key files, and `DATABASE_URL` injection are documented in `docs/PRODUCTION.md`, which points at `docs/BACKUP_ENCRYPTION.md` and `docs/DATA_RETENTION.md`. `npm run audit:retain` remains report-only (`deleted: false`).
+
+Pending manual tests:
+
+- `curl -D- http://localhost:3001/health/live` and confirm `content-security-policy`, `x-frame-options: DENY`, and `x-content-type-options: nosniff`.
+- Serve the production-built admin UI and sign in.

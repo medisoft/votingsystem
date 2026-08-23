@@ -399,7 +399,7 @@ The project is currently in the architecture and prototype design phase.
 
 The first implementation target is a condominium voting system.
 
-Registration Service Stages 1–16 are complete for the condominium prototype. Stage 16 adds CSV upsert and per-scope eligibility import. Stage 11 issuance remains experimental, not production-ready.
+Registration Service Stages 1–17 are complete for the condominium prototype. Stage 17 adds a production admin CSP without eval and deployment notes for TLS and secrets. Stage 11 issuance remains experimental, not production-ready.
 
 The MVP will prioritize:
 
