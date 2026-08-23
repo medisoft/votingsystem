@@ -30,6 +30,9 @@ describe('internationalization', () => {
       'Activar credencial',
     );
     expect(createTranslator('en')('projectName')).toBe('Voting system');
+    expect(createTranslator('en')('scanSuccess', { prefix: 'Aa1_-Aa1' })).toBe(
+      'Activation code received (Aa1_-Aa1…).',
+    );
   });
 
   it('prefers a stored locale over browser languages', () => {

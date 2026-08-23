@@ -5,6 +5,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { LOCALE_STORAGE_KEY } from './i18n';
 import type { InstallPromptEvent } from './install';
+import { resetNativeQrDetectorCache } from './qr-detect';
+import { useClientStore } from './store';
+
+const SAMPLE_TOKEN = 'Aa1_-'.repeat(8) + 'xyz';
 
 function renderApp(path = '/') {
   return render(
@@ -23,6 +27,8 @@ function renderApp(path = '/') {
 afterEach(() => {
   cleanup();
   window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+  useClientStore.getState().setActivationToken(null);
+  resetNativeQrDetectorCache();
   vi.unstubAllGlobals();
 });
 
@@ -40,17 +46,116 @@ it('shows the welcome screen with project name and activation', () => {
   ).toBeInTheDocument();
 });
 
-it('opens the activation placeholder from the welcome button', () => {
+it('opens the QR activation screen from the welcome button', () => {
   window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
   renderApp();
   fireEvent.click(screen.getByRole('button', { name: 'Activate credential' }));
   expect(
-    screen.getByText(/Camera scanning will be available/),
+    screen.getByRole('button', { name: 'Start camera' }),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole('link', { name: 'Back to welcome' }));
   expect(
     screen.getByRole('button', { name: 'Activate credential' }),
   ).toBeInTheDocument();
+});
+
+it('accepts a pasted activation URL and keeps only the token in memory', () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  renderApp('/activate');
+  fireEvent.change(screen.getByLabelText('Activation token'), {
+    target: {
+      value: `https://vote.example.com/activate?token=${SAMPLE_TOKEN}`,
+    },
+  });
+  fireEvent.submit(screen.getByLabelText('Activation token').closest('form')!);
+  expect(
+    screen.getByText(
+      `Activation code received (${SAMPLE_TOKEN.slice(0, 8)}…).`,
+    ),
+  ).toBeInTheDocument();
+  expect(useClientStore.getState().activationToken).toBe(SAMPLE_TOKEN);
+  expect(window.localStorage.getItem('activationToken')).toBeNull();
+});
+
+it('rejects an invalid pasted value', () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  renderApp('/activate');
+  fireEvent.change(screen.getByLabelText('Activation token'), {
+    target: { value: 'not a token' },
+  });
+  fireEvent.submit(screen.getByLabelText('Activation token').closest('form')!);
+  expect(screen.getByText(/not a valid activation token/)).toBeInTheDocument();
+});
+
+it('reads a token query parameter then strips it from the URL', () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  renderApp(`/activate?token=${SAMPLE_TOKEN}`);
+  expect(
+    screen.getByText(
+      `Activation code received (${SAMPLE_TOKEN.slice(0, 8)}…).`,
+    ),
+  ).toBeInTheDocument();
+  expect(useClientStore.getState().activationToken).toBe(SAMPLE_TOKEN);
+});
+
+it('starts the camera and reports a denied permission', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    mediaDevices: {
+      getUserMedia: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('denied'), { name: 'NotAllowedError' }),
+        ),
+    },
+  });
+  renderApp('/activate');
+  fireEvent.click(screen.getByRole('button', { name: 'Start camera' }));
+  expect(
+    await screen.findByText(/Camera permission was denied/),
+  ).toBeInTheDocument();
+});
+
+it('accepts a camera QR that contains an activation URL', async () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  vi.stubGlobal(
+    'BarcodeDetector',
+    class {
+      detect = vi.fn().mockResolvedValue([
+        {
+          rawValue: `https://vote.example.com/activate?token=${SAMPLE_TOKEN}`,
+        },
+      ]);
+    },
+  );
+  resetNativeQrDetectorCache();
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    mediaDevices: {
+      getUserMedia: vi.fn().mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn() }],
+      }),
+    },
+  });
+  renderApp('/activate');
+  fireEvent.click(screen.getByRole('button', { name: 'Start camera' }));
+  expect(
+    await screen.findByText(
+      `Activation code received (${SAMPLE_TOKEN.slice(0, 8)}…).`,
+    ),
+  ).toBeInTheDocument();
+});
+
+it('clears the scanned token when scanning again', () => {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+  useClientStore.getState().setActivationToken(SAMPLE_TOKEN);
+  renderApp('/activate');
+  fireEvent.click(screen.getByRole('button', { name: 'Scan again' }));
+  expect(
+    screen.getByRole('button', { name: 'Start camera' }),
+  ).toBeInTheDocument();
+  expect(useClientStore.getState().activationToken).toBeNull();
 });
 
 it('redirects unknown paths to the welcome screen', () => {
